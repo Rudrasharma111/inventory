@@ -59,9 +59,6 @@ erDiagram
 - Foreign key: `items.created_by → users.id`
 - Unique key: `users.email`
 
-## Migrations (Alembic)
-`alembic upgrade head` creates the tables (runs automatically when Docker starts). After changing `models.py`: `alembic revision --autogenerate -m "message"`.
-
 ## Looking at the data
 In pgAdmin (http://localhost:5050) or with psql:
 ```bash
