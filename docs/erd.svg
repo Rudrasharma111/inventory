@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300" font-family="Arial, sans-serif" font-size="14">
+  <rect width="760" height="300" fill="#ffffff"/>
+  <!-- users -->
+  <rect x="30" y="40" width="300" height="200" fill="#eef4ff" stroke="#2f5fb3" stroke-width="2"/>
+  <rect x="30" y="40" width="300" height="32" fill="#2f5fb3"/>
+  <text x="180" y="62" fill="#fff" font-weight="bold" text-anchor="middle">users</text>
+  <text x="44" y="96">id  <tspan fill="#666">INTEGER  PK</tspan></text>
+  <text x="44" y="120">name  <tspan fill="#666">VARCHAR(100)  NOT NULL</tspan></text>
+  <text x="44" y="144">email  <tspan fill="#666">VARCHAR(255)  UNIQUE, NOT NULL</tspan></text>
+  <text x="44" y="168">phone  <tspan fill="#666">VARCHAR(20)  NULL</tspan></text>
+  <text x="44" y="192">password_hash  <tspan fill="#666">VARCHAR(255)  NULL</tspan></text>
+  <text x="44" y="216">role  <tspan fill="#666">VARCHAR(20)  NOT NULL</tspan></text>
+  <!-- items -->
+  <rect x="430" y="60" width="300" height="160" fill="#effaf1" stroke="#2f8f4a" stroke-width="2"/>
+  <rect x="430" y="60" width="300" height="32" fill="#2f8f4a"/>
+  <text x="580" y="82" fill="#fff" font-weight="bold" text-anchor="middle">items</text>
+  <text x="444" y="116">id  <tspan fill="#666">INTEGER  PK</tspan></text>
+  <text x="444" y="140">name  <tspan fill="#666">VARCHAR(100)  NOT NULL</tspan></text>
+  <text x="444" y="164">quantity  <tspan fill="#666">INTEGER  NOT NULL</tspan></text>
+  <text x="444" y="188">price  <tspan fill="#666">NUMERIC(10,2)  NOT NULL</tspan></text>
+  <text x="444" y="212">created_by  <tspan fill="#666">INTEGER  FK, NOT NULL</tspan></text>
+  <!-- relationship: one user has many items -->
+  <line x1="330" y1="150" x2="430" y2="206" stroke="#333" stroke-width="2"/>
+  <text x="338" y="140" font-weight="bold">1</text>
+  <text x="404" y="196" font-weight="bold">N</text>
+  <text x="372" y="262" text-anchor="middle" fill="#333">items.created_by → users.id  (one user creates many items)</text>
+</svg>
