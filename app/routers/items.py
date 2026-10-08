@@ -23,6 +23,7 @@ def get_item_or_404(item_id: int, db: Session) -> Item:
 def create_item(
     data: ItemIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
+    # created_by always comes from the token, never from the request body
     item = Item(**data.model_dump(), created_by=user.id)
     db.add(item)
     db.commit()
@@ -40,9 +41,10 @@ def list_items(
 ):
     query = db.query(Item)
     if search:
-        # autoescape: a typed "%" or "_" is searched as a normal character
+        # case-insensitive "contains" search; autoescape makes "%" and "_" normal characters
         query = query.filter(func.lower(Item.name).contains(search.lower(), autoescape=True))
-    total = query.count()
+    total = query.count()  # total matches, so the client can build page numbers
+    # pagination: skip the previous pages, then take one page (stable order by id)
     items = query.order_by(Item.id).offset((page - 1) * limit).limit(limit).all()
     return ItemPage(page=page, limit=limit, total=total, items=items)
 

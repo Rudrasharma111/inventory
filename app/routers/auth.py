@@ -1,67 +1,92 @@
-import logging
+"""Password hashing, JWT, 'who is logged in', role checks, Google token check."""
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+import bcrypt
+import jwt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token, hash_password, verify_google_token, verify_password
+from app.config import ACCESS_TOKEN_MINUTES, GOOGLE_CLIENT_ID, JWT_ALGORITHM, SECRET_KEY
 from app.database import get_db
 from app.models import User
-from app.schemas import GoogleLoginRequest, LoginRequest, SignupRequest, TokenResponse, UserOut
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
-
-def send_welcome_message(name: str, email: str):
-    """Background task: runs after the signup response is sent (pretend email)."""
-    logging.getLogger("uvicorn.error").info("Welcome message sent to %s (%s)", name, email)
+# auto_error=False lets us return our own 401 message
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def token_response(user: User) -> TokenResponse:
-    return TokenResponse(access_token=create_access_token(user), role=user.role)
+def hash_password(password: str) -> str:
+    # bcrypt adds a random salt, so the same password gives a different hash each time
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
-@router.post("/signup", response_model=UserOut, status_code=201)
-def signup(data: SignupRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
-    email = data.email.lower()
-    if db.query(User).filter(User.email == email).first():
-        raise HTTPException(409, "Email already registered")
-    user = User(
-        name=data.name,
-        email=email,
-        phone=data.phone,
-        password_hash=hash_password(data.password),
-        role="staff",  # everybody starts as staff
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    background.add_task(send_welcome_message, user.name, user.email)
+def verify_password(password: str, password_hash: str) -> bool:
+    return bcrypt.checkpw(password.encode(), password_hash.encode())
+
+
+def create_access_token(user: User) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user.id),  # who the token belongs to (JWT wants a string here)
+        "email": user.email,
+        "role": user.role,  # only for the client to show; the server reads the role from the DB
+        "iat": now,
+        "exp": now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    """Checks the token, then loads the user from the database.
+
+    We use the role from the database, not from the token. So if an admin changes
+    a role, it works right away and the user does not need to log in again.
+    """
+    headers = {"WWW-Authenticate": "Bearer"}
+    if credentials is None:
+        raise HTTPException(401, "Not authenticated", headers=headers)
+    try:
+        # decode() also checks the signature and the expiry time
+        claims = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        user = db.get(User, int(claims["sub"]))
+    except (jwt.PyJWTError, KeyError, ValueError):
+        raise HTTPException(401, "Invalid or expired token", headers=headers)
+    if user is None:
+        raise HTTPException(401, "User no longer exists", headers=headers)
     return user
 
 
-@router.post("/login", response_model=TokenResponse)
-def login(data: LoginRequest, db: Session = Depends(get_db)):
-    email = data.email.lower()
-    user = db.query(User).filter(User.email == email).first()
-    # Google-only users have no password, so they can never log in here.
-    if not user or not user.password_hash or not verify_password(data.password, user.password_hash):
-        raise HTTPException(401, "Invalid email or password")
+def require_roles(*roles: str):
+    """Builds a dependency that lets only the given roles in. Example: require_roles("admin")."""
 
-    return token_response(user)
+    def checker(user: User = Depends(get_current_user)) -> User:
+        if user.role not in roles:
+            raise HTTPException(403, "Your role is not allowed to do this")
+        return user
+
+    return checker
 
 
-@router.post("/google", response_model=TokenResponse, include_in_schema=False)  # used by /login page
-def google_login(data: GoogleLoginRequest, db: Session = Depends(get_db)):
-    info = verify_google_token(data.id_token)
-    email = info["email"].lower()
-    user = db.query(User).filter(User.email == email).first()
-    if user and user.password_hash:
-        # Anyone can sign up with any email (we do not verify emails), so we never
-        # merge a Google login into a password account. Otherwise a stranger who
-        # signed up with your email first could stay inside your account.
-        raise HTTPException(409, "This email has a password account. Log in with email and password.")
-    if not user:
-        user = User(name=info.get("name") or email.split("@")[0], email=email, role="staff")
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return token_response(user)
+require_admin = require_roles("admin")
+require_admin_or_manager = require_roles("admin", "inventory_manager")
+
+
+def verify_google_token(token: str) -> dict:
+    """Asks Google's library to check the ID token. Returns its data (email, name, ...)."""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(503, "Google login is not configured")
+    try:
+        # checks the signature, the expiry and that the token was made for OUR client id
+        info = google_id_token.verify_oauth2_token(
+            token, google_requests.Request(), GOOGLE_CLIENT_ID
+        )
+    except Exception:
+        raise HTTPException(401, "Invalid Google token")
+    if not info.get("email_verified"):
+        raise HTTPException(401, "Google email is not verified")
+    return info
