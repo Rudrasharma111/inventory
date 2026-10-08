@@ -45,7 +45,7 @@ erDiagram
 | Column | Type | Constraints |
 | :--- | :--- | :--- |
 | id | INTEGER | PRIMARY KEY (auto number) |
-| name | VARCHAR(100) | NOT NULL, indexed (used by search) |
+| name | VARCHAR(100) | NOT NULL, indexed |
 | quantity | INTEGER | NOT NULL |
 | price | NUMERIC(10,2) | NOT NULL (exact decimal, so money has no rounding errors) |
 | created_by | INTEGER | NOT NULL, FOREIGN KEY → `users.id` |
