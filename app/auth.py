@@ -1,91 +1,78 @@
-"""Password hashing, JWT, 'who is logged in', role checks, Google token check."""
-from datetime import datetime, timedelta, timezone
+"""Endpoints: /auth/signup, /auth/login, /auth/google."""
+import logging
 
-import bcrypt
-import jwt
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token as google_id_token
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import ACCESS_TOKEN_MINUTES, GOOGLE_CLIENT_ID, JWT_ALGORITHM, SECRET_KEY
+from app.auth import (
+    create_access_token,
+    hash_password,
+    verify_google_token,
+    verify_password,
+)
 from app.database import get_db
 from app.models import User
+from app.schemas import GoogleLoginRequest, LoginRequest, SignupRequest, TokenResponse, UserOut
 
-bearer_scheme = HTTPBearer(auto_error=False)
-
-
-# ---------- passwords ----------
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+router = APIRouter(prefix="/auth", tags=["Auth"])
+logger = logging.getLogger("uvicorn.error")
 
 
-def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode(), password_hash.encode())
+def send_welcome_message(name: str, email: str) -> None:
+    """Background task: runs after the response is sent (here it only writes a log line)."""
+    logger.info("Welcome message sent to %s <%s>", name, email)
 
 
-# ---------- JWT ----------
-def create_access_token(user: User) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": str(user.id),
-        "email": user.email,
-        "role": user.role,
-        "iat": now,
-        "exp": now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
-
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-) -> User:
-    """Checks the JWT, then loads the user from the DATABASE.
-
-    The role is read from the database (not from the token), so a changed role
-    or a deleted user takes effect immediately.
-    """
-    headers = {"WWW-Authenticate": "Bearer"}
-    if credentials is None:
-        raise HTTPException(401, "Not authenticated", headers=headers)
+@router.post("/signup", response_model=UserOut, status_code=201)
+def signup(data: SignupRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    email = data.email.lower()
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(409, "Email already registered")
+    # everybody starts as "staff"; the role can never be chosen at signup
+    user = User(
+        name=data.name,
+        email=email,
+        phone=data.phone,
+        password_hash=hash_password(data.password),
+        role="staff",
+    )
+    db.add(user)
     try:
-        claims = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        user = db.get(User, int(claims["sub"]))
-    except (jwt.PyJWTError, KeyError, ValueError):
-        raise HTTPException(401, "Invalid or expired token", headers=headers)
-    if user is None:
-        raise HTTPException(401, "User no longer exists", headers=headers)
+        db.commit()
+    except IntegrityError:
+        # two signups with the same email at the same moment: the unique index stops the second
+        db.rollback()
+        raise HTTPException(409, "Email already registered")
+    db.refresh(user)
+    background_tasks.add_task(send_welcome_message, user.name, user.email)
     return user
 
 
-def require_roles(*roles: str):
-    """Dependency factory: only the given roles may call the route."""
-
-    def checker(user: User = Depends(get_current_user)) -> User:
-        if user.role not in roles:
-            raise HTTPException(403, "Your role is not allowed to do this")
-        return user
-
-    return checker
+@router.post("/login", response_model=TokenResponse)
+def login(data: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email.lower()).first()
+    # same message for "no such user", "Google-only user" and "wrong password"
+    if not user or not user.password_hash or not verify_password(data.password, user.password_hash):
+        raise HTTPException(401, "Wrong email or password")
+    return TokenResponse(access_token=create_access_token(user), role=user.role)
 
 
-require_admin = require_roles("admin")
-require_admin_or_manager = require_roles("admin", "inventory_manager")
-
-
-# ---------- Google login ----------
-def verify_google_token(token: str) -> dict:
-    """Verifies a Google ID token and returns its claims (email, name, ...)."""
-    if not GOOGLE_CLIENT_ID:
-        raise HTTPException(503, "Google login is not configured")
-    try:
-        info = google_id_token.verify_oauth2_token(
-            token, google_requests.Request(), GOOGLE_CLIENT_ID
-        )
-    except Exception:
-        raise HTTPException(401, "Invalid Google token")
-    if not info.get("email_verified"):
-        raise HTTPException(401, "Google email is not verified")
-    return info
+@router.post("/google", response_model=TokenResponse)
+def google_login(data: GoogleLoginRequest, db: Session = Depends(get_db)):
+    info = verify_google_token(data.id_token)
+    email = info["email"].lower()
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        user = User(name=info.get("name") or email.split("@")[0], email=email, role="staff")
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, "Email already registered")
+        db.refresh(user)
+    elif user.password_hash:
+        # never merge Google into a password account (emails are not verified at signup)
+        raise HTTPException(409, "This email already has a password account. Log in with your password.")
+    return TokenResponse(access_token=create_access_token(user), role=user.role)

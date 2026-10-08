@@ -53,7 +53,7 @@ class RoleUpdate(BaseModel):
 # ---------- Items ----------
 class ItemIn(BaseModel):
     name: Name
-    quantity: int = Field(ge=1)
+    quantity: int = Field(ge=0)  # 0 = out of stock
     price: float = Field(ge=0.01, le=99999999.99)  # stored with 2 decimals
 
 

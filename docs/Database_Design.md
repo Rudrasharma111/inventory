@@ -60,7 +60,7 @@ erDiagram
 - Unique key: `users.email`
 
 ## Looking at the data
-In pgAdmin (http://localhost:5050) or with psql:
+With psql:
 ```bash
 docker compose exec db psql -U postgres -d inventory_db -c "SELECT id, name, email, role FROM users;"
 docker compose exec db psql -U postgres -d inventory_db -c "SELECT * FROM items;"
