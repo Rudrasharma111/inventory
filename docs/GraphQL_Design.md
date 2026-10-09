@@ -17,7 +17,7 @@ flowchart LR
     S --> DB[(PostgreSQL)]
 ```
 
-The business rules (staff can update only own items, only admin/manager can delete, role comes from DB, 409 on a duplicate email) live **once** in a service layer. REST routers, GraphQL resolvers and gRPC servicers are thin wrappers that only translate the request and the error. So the three APIs cannot behave differently.
+The business rules (any logged-in user can update items, only admin/manager can delete, the role comes from the database, 409 on a duplicate email) are the same in REST, GraphQL and gRPC.
 
 ## 2. Schema
 
@@ -76,7 +76,7 @@ type Mutation {
   login(email: String!, password: String!): AuthPayload!       # public
   googleLogin(idToken: String!): AuthPayload!                  # public
   createItem(input: ItemInput!): Item!                         # logged in, createdBy = token user
-  updateItem(id: ID!, input: ItemInput!): Item!                # staff: own items only
+  updateItem(id: ID!, input: ItemInput!): Item!                # any logged-in user
   deleteItem(id: ID!): Boolean!                                # admin or inventory_manager
   updateUserRole(id: ID!, role: AssignableRole!): User!        # admin only
 }

@@ -106,7 +106,7 @@ service InventoryService {                                                     /
   rpc CreateItem (CreateItemRequest) returns (Item);                           // created_by = token user
   rpc GetItem (GetItemRequest) returns (Item);
   rpc ListItems (ListItemsRequest) returns (ListItemsResponse);
-  rpc UpdateItem (UpdateItemRequest) returns (Item);                           // staff: own items only
+  rpc UpdateItem (UpdateItemRequest) returns (Item);                           // any logged-in user
   rpc DeleteItem (DeleteItemRequest) returns (google.protobuf.Empty);          // admin or inventory_manager
 }
 

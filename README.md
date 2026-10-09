@@ -21,8 +21,6 @@ A backend service to manage inventory items. Users sign up or log in (email + pa
 11. [Tests](#11-tests)
 12. [Postman collection](#12-postman-collection)
 13. [Design documents](#13-design-documents)
-14. [Known limitations](#14-known-limitations)
-15. [Troubleshooting](#15-troubleshooting)
 
 ---
 
@@ -230,7 +228,7 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 | 5 | POST | `/items` | any logged-in user | 201 | 401, 422 |
 | 6 | GET | `/items?page=&limit=&search=` | any logged-in user | 200 | 401, 422 |
 | 7 | GET | `/items/{item_id}` | any logged-in user | 200 | 401, 404 |
-| 8 | PUT | `/items/{item_id}` | staff (own items only), manager, admin | 200 | 401, 403, 404, 422 |
+| 8 | PUT | `/items/{item_id}` | any logged-in user (staff, manager, admin) | 200 | 401, 404, 422 |
 | 9 | DELETE | `/items/{item_id}` | manager, admin | 204 | 401, 403, 404 |
 | 10 | GET | `/users` | admin | 200 | 401, 403 |
 | 11 | PATCH | `/users/{user_id}/role` | admin | 200 | 400, 401, 403, 404, 422 |
@@ -332,8 +330,7 @@ Every response has an `X-Process-Time` header (added by the middleware).
 | :--- | :---: | :---: | :---: |
 | Sign up / log in | ✅ | ✅ | ✅ |
 | Create and read items | ✅ | ✅ | ✅ |
-| Update own items | ✅ | ✅ | ✅ |
-| Update any item | ❌ | ✅ | ✅ |
+| Update items | ✅ | ✅ | ✅ |
 | Delete items | ❌ | ✅ | ✅ |
 | List users | ❌ | ❌ | ✅ |
 | Change a user's role | ❌ | ❌ | ✅ |

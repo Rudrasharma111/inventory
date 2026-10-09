@@ -31,7 +31,7 @@ Plural nouns, lowercase, no verbs in the URL. The HTTP method says what happens.
 | POST | `/items` | logged in | 201 | 401, 422 |
 | GET | `/items?page=1&limit=10&search=` | logged in | 200 | 401, 422 |
 | GET | `/items/{item_id}` | logged in | 200 | 401, 404 |
-| PUT | `/items/{item_id}` | logged in (staff: own items only) | 200 | 401, 403, 404, 422 |
+| PUT | `/items/{item_id}` | logged in | 200 | 401, 404, 422 |
 | DELETE | `/items/{item_id}` | **admin or inventory_manager** | 204 | 401, 403, 404 |
 | GET | `/users` | **admin only** | 200 | 401, 403 |
 | PATCH | `/users/{user_id}/role` | **admin only** | 200 | 400, 401, 403, 404, 422 |
