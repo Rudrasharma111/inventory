@@ -29,8 +29,8 @@ The token is signed, so nobody can edit it. But a token stays valid until it exp
 ## Roles
 | Role | How you get it | Can do |
 | :--- | :--- | :--- |
-| `staff` | Default for every signup / Google login | Create and read items, update **own** items |
-| `inventory_manager` | An admin promotes a user with `PATCH /users/{id}/role` | Everything staff can do + update any item + delete items |
+| `staff` | Default for every signup / Google login | Create, read and update items |
+| `inventory_manager` | An admin promotes a user with `PATCH /users/{id}/role` | Everything staff can do + delete items |
 | `admin` | Created from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env` on every startup (nobody else can become admin) | Everything a manager can do + list users + manage roles |
 
 ## Security notes

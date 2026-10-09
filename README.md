@@ -21,8 +21,6 @@ A backend service to manage inventory items. Users sign up or log in (email + pa
 11. [Tests](#11-tests)
 12. [Postman collection](#12-postman-collection)
 13. [Design documents](#13-design-documents)
-14. [Known limitations](#14-known-limitations)
-15. [Troubleshooting](#15-troubleshooting)
 
 ---
 
@@ -230,7 +228,7 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 | 5 | POST | `/items` | any logged-in user | 201 | 401, 422 |
 | 6 | GET | `/items?page=&limit=&search=` | any logged-in user | 200 | 401, 422 |
 | 7 | GET | `/items/{item_id}` | any logged-in user | 200 | 401, 404 |
-| 8 | PUT | `/items/{item_id}` | staff (own items only), manager, admin | 200 | 401, 403, 404, 422 |
+| 8 | PUT | `/items/{item_id}` | any logged-in user (staff, manager, admin) | 200 | 401, 404, 422 |
 | 9 | DELETE | `/items/{item_id}` | manager, admin | 204 | 401, 403, 404 |
 | 10 | GET | `/users` | admin | 200 | 401, 403 |
 | 11 | PATCH | `/users/{user_id}/role` | admin | 200 | 400, 401, 403, 404, 422 |
@@ -332,8 +330,7 @@ Every response has an `X-Process-Time` header (added by the middleware).
 | :--- | :---: | :---: | :---: |
 | Sign up / log in | ✅ | ✅ | ✅ |
 | Create and read items | ✅ | ✅ | ✅ |
-| Update own items | ✅ | ✅ | ✅ |
-| Update any item | ❌ | ✅ | ✅ |
+| Update items | ✅ | ✅ | ✅ |
 | Delete items | ❌ | ✅ | ✅ |
 | List users | ❌ | ❌ | ✅ |
 | Change a user's role | ❌ | ❌ | ✅ |
@@ -531,30 +528,3 @@ How to run:
 | [JWT_Design.md](docs/JWT_Design.md) | Token claims, flow, why the role comes from the database |
 
 ---
-
-## 14. Known limitations
-
-These are on purpose, to keep the project simple.
-
-- Emails are **not verified** at signup, so anyone can register an email they do not own. Because of this, Google login is never merged into a password account.
-- **No login rate limiting**: there is no lockout after wrong passwords.
-- **No refresh token and no logout**: a token is valid for 60 minutes. Deleted or demoted users are still blocked at once, because the user is loaded from the database on every request.
-- `PUT` replaces the whole item. If two people save the same item at once, the last save wins.
-- No password change, forgot-password or user-delete endpoints.
-- The Docker setup is for **local development**: default PostgreSQL (`postgres/postgres`) and pgAdmin (`admin/admin`) passwords, open ports, no HTTPS.
-- Tests run on SQLite, not on PostgreSQL.
-- GraphQL and gRPC are **design documents only**, as the assignment asked.
-
----
-
-## 15. Troubleshooting
-
-| Problem | Fix |
-| :--- | :--- |
-| App exits with "SECRET_KEY is missing or still the example value" | Create `.env` from `.env.example` and set a real `SECRET_KEY` |
-| App exits with "ADMIN_PASSWORD is still the example value" | Set a real `ADMIN_PASSWORD` in `.env` |
-| Port `5435`, `5050` or `8000` already in use | Stop the other program, or change the left side of the port in `docker-compose.yml` |
-| `relation "users" does not exist` | Run `alembic upgrade head`, or `docker compose down -v` and start again |
-| Swagger returns `401` | Click **Authorize** and paste only the token (no `Bearer`). Tokens expire after 60 minutes |
-| `/login` shows "Google login is not configured" | Set `GOOGLE_CLIENT_ID` in `.env` and restart |
-| `pytest` says `ModuleNotFoundError` | Activate the virtual environment and run `pip install -r requirements.txt` |

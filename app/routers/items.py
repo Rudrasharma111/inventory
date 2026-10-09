@@ -61,10 +61,8 @@ def update_item(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # any logged-in user (staff, inventory manager, admin) may update any item
     item = get_item_or_404(item_id, db)
-    # staff may only change their own items; managers and the admin may change any
-    if user.role == "staff" and item.created_by != user.id:
-        raise HTTPException(403, "You can only update your own items")
     item.name, item.quantity, item.price = data.name, data.quantity, data.price
     db.commit()
     db.refresh(item)
