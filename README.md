@@ -21,8 +21,6 @@ A backend service to manage inventory items. Users sign up or log in (email + pa
 11. [Tests](#11-tests)
 12. [Postman collection](#12-postman-collection)
 13. [Design documents](#13-design-documents)
-14. [Known limitations](#14-known-limitations)
-15. [Troubleshooting](#15-troubleshooting)
 
 ---
 
@@ -157,7 +155,7 @@ Example: `DELETE /items/5` with a token.
 1. The middleware starts a timer and passes the request on.
 2. `get_current_user` checks the token signature and expiry, then loads the user from the database (so the role is the **current** one).
 3. `require_roles` checks that the role is `admin` or `inventory_manager`.
-4. The item is found and deleted, and the response is `204 No Content` with the header `X-Process-Time`.
+4. The item is found and deleted, and the response is `200` with `{"message": "Item deleted successfully"}` with the header `X-Process-Time`.
 
 Status codes along this path: no or bad token → **401**, role not allowed → **403**, invalid body or query → **422**, missing item → **404**.
 
@@ -190,7 +188,7 @@ The ERD diagram is in [docs/erd.svg](docs/erd.svg) and in the presentation.
 | Column | Type | Constraints |
 | :--- | :--- | :--- |
 | id | INTEGER | PRIMARY KEY (auto number) |
-| name | VARCHAR(100) | NOT NULL |
+| name | VARCHAR(50) | NOT NULL |
 | email | VARCHAR(255) | NOT NULL, UNIQUE, indexed |
 | phone | VARCHAR(20) | NULL allowed |
 | password_hash | VARCHAR(255) | NULL allowed (Google users have no password) |
@@ -201,8 +199,8 @@ The ERD diagram is in [docs/erd.svg](docs/erd.svg) and in the presentation.
 | Column | Type | Constraints |
 | :--- | :--- | :--- |
 | id | INTEGER | PRIMARY KEY (auto number) |
-| name | VARCHAR(100) | NOT NULL, indexed (used by search) |
-| quantity | INTEGER | NOT NULL (the API requires >= 0; 0 = out of stock) |
+| name | VARCHAR(50) | NOT NULL, indexed (used by search) |
+| quantity | INTEGER | NOT NULL (the API requires 1 to 1,000,000) |
 | price | NUMERIC(10,2) | NOT NULL (exact decimal, so money has no rounding errors) |
 | created_by | INTEGER | NOT NULL, FOREIGN KEY → `users.id` |
 
@@ -230,8 +228,8 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 | 5 | POST | `/items` | any logged-in user | 201 | 401, 422 |
 | 6 | GET | `/items?page=&limit=&search=` | any logged-in user | 200 | 401, 422 |
 | 7 | GET | `/items/{item_id}` | any logged-in user | 200 | 401, 404 |
-| 8 | PUT | `/items/{item_id}` | staff (own items only), manager, admin | 200 | 401, 403, 404, 422 |
-| 9 | DELETE | `/items/{item_id}` | manager, admin | 204 | 401, 403, 404 |
+| 8 | PUT | `/items/{item_id}` | any logged-in user (staff, manager, admin) | 200 | 401, 404, 422 |
+| 9 | DELETE | `/items/{item_id}` | manager, admin | 200 | 401, 403, 404 |
 | 10 | GET | `/users` | admin | 200 | 401, 403 |
 | 11 | PATCH | `/users/{user_id}/role` | admin | 200 | 400, 401, 403, 404, 422 |
 
@@ -280,7 +278,7 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 }
 ```
 
-**DELETE `/items/{item_id}`** → `204` with an empty body.
+**DELETE `/items/{item_id}`** → `200` with `{ "message": "Item deleted successfully" }`.
 
 **GET `/users`** (admin) → list of users (never includes the password hash).
 
@@ -294,7 +292,7 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 
 | Code | Meaning here |
 | :--- | :--- |
-| 200 / 201 / 204 | OK / created / deleted (no body) |
+| 200 / 201 | OK (delete also returns a message) / created |
 | 400 | Change not allowed (the admin's role) |
 | 401 | No token, bad or expired token, or wrong login |
 | 403 | Logged in, but the role is not allowed |
@@ -332,8 +330,7 @@ Every response has an `X-Process-Time` header (added by the middleware).
 | :--- | :---: | :---: | :---: |
 | Sign up / log in | ✅ | ✅ | ✅ |
 | Create and read items | ✅ | ✅ | ✅ |
-| Update own items | ✅ | ✅ | ✅ |
-| Update any item | ❌ | ✅ | ✅ |
+| Update items | ✅ | ✅ | ✅ |
 | Delete items | ❌ | ✅ | ✅ |
 | List users | ❌ | ❌ | ✅ |
 | Change a user's role | ❌ | ❌ | ✅ |
@@ -368,11 +365,11 @@ Checked by Pydantic. Bad input returns `422` with the list of problems.
 
 | Field | Rule |
 | :--- | :--- |
-| `name` (user, item) | 1–100 characters, spaces at the ends are removed |
+| `name` (user, item) | 1–50 characters, spaces at the ends are removed |
 | `email` | valid email format |
 | `phone` | optional, 7–15 digits, optional `+` at the start |
 | `password` | 8–64 characters, at most 72 bytes |
-| `quantity` | integer **>= 0** (0 means out of stock) |
+| `quantity` | integer **1 to 1,000,000** |
 | `price` | number from 0.01 to 99999999.99 (stored with 2 decimals) |
 | `page` / `limit` | `page` >= 1, `limit` from 1 to 100 |
 
@@ -458,7 +455,7 @@ If the consent screen is in "Testing" mode, add your Google account under *Test 
 3. `POST /items` a few times, then `GET /items?page=1&limit=2` (pagination) and `?search=key` (search).
 4. `DELETE /items/{id}` as staff → **403**.
 5. Log in as the admin → `GET /users` → `PATCH /users/{id}/role` to `inventory_manager`.
-6. `DELETE /items/{id}` with the **same staff token** → **204** (the role comes from the database).
+6. `DELETE /items/{id}` with the **same staff token** → **200** (the role comes from the database).
 7. Look at the tables in pgAdmin, then run `pytest`.
 
 ---
@@ -495,7 +492,7 @@ Expected result: **`3 passed`**.
 | :-: | :--- | :--- |
 | 1 | `test_signup_and_login` | Signup → 201, same email → 409, login gives a token, wrong password → 401 |
 | 2 | `test_item_crud` | No token → 401, create / read / update, negative quantity → 422 |
-| 3 | `test_roles` | Staff cannot delete (403), admin can (204) |
+| 3 | `test_roles` | Staff cannot delete (403), admin can (200) |
 
 Concepts used: pytest fixtures (`client`, `staff_headers`, `admin_headers`).
 
@@ -508,7 +505,7 @@ Import [docs/postman_collection.json](docs/postman_collection.json) (*Import* �
 | Folder | Requests |
 | :--- | :--- |
 | Auth | Signup · Login (staff + admin) · Google Login |
-| Items | Create · List (pagination + search) · Get · Update · Delete (admin 204, staff 403, then 404) |
+| Items | Create · List (pagination + search) · Get · Update · Delete (admin 200, staff 403, then 404) |
 | Users (admin) | List users (admin 200, staff 403) · Change role (manager, then admin 422, then staff) |
 
 How to run:
@@ -531,30 +528,3 @@ How to run:
 | [JWT_Design.md](docs/JWT_Design.md) | Token claims, flow, why the role comes from the database |
 
 ---
-
-## 14. Known limitations
-
-These are on purpose, to keep the project simple.
-
-- Emails are **not verified** at signup, so anyone can register an email they do not own. Because of this, Google login is never merged into a password account.
-- **No login rate limiting**: there is no lockout after wrong passwords.
-- **No refresh token and no logout**: a token is valid for 60 minutes. Deleted or demoted users are still blocked at once, because the user is loaded from the database on every request.
-- `PUT` replaces the whole item. If two people save the same item at once, the last save wins.
-- No password change, forgot-password or user-delete endpoints.
-- The Docker setup is for **local development**: default PostgreSQL (`postgres/postgres`) and pgAdmin (`admin/admin`) passwords, open ports, no HTTPS.
-- Tests run on SQLite, not on PostgreSQL.
-- GraphQL and gRPC are **design documents only**, as the assignment asked.
-
----
-
-## 15. Troubleshooting
-
-| Problem | Fix |
-| :--- | :--- |
-| App exits with "SECRET_KEY is missing or still the example value" | Create `.env` from `.env.example` and set a real `SECRET_KEY` |
-| App exits with "ADMIN_PASSWORD is still the example value" | Set a real `ADMIN_PASSWORD` in `.env` |
-| Port `5435`, `5050` or `8000` already in use | Stop the other program, or change the left side of the port in `docker-compose.yml` |
-| `relation "users" does not exist` | Run `alembic upgrade head`, or `docker compose down -v` and start again |
-| Swagger returns `401` | Click **Authorize** and paste only the token (no `Bearer`). Tokens expire after 60 minutes |
-| `/login` shows "Google login is not configured" | Set `GOOGLE_CLIENT_ID` in `.env` and restart |
-| `pytest` says `ModuleNotFoundError` | Activate the virtual environment and run `pip install -r requirements.txt` |
