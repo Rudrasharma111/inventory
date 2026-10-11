@@ -45,7 +45,7 @@ erDiagram
 | Column | Type | Constraints |
 | :--- | :--- | :--- |
 | id | INTEGER | PRIMARY KEY (auto number) |
-| name | VARCHAR(100) | NOT NULL, indexed (used by search) |
+| name | VARCHAR(50) | NOT NULL, indexed |
 | quantity | INTEGER | NOT NULL |
 | price | NUMERIC(10,2) | NOT NULL (exact decimal, so money has no rounding errors) |
 | created_by | INTEGER | NOT NULL, FOREIGN KEY → `users.id` |
@@ -59,11 +59,8 @@ erDiagram
 - Foreign key: `items.created_by → users.id`
 - Unique key: `users.email`
 
-## Migrations (Alembic)
-`alembic upgrade head` creates the tables (runs automatically when Docker starts). After changing `models.py`: `alembic revision --autogenerate -m "message"`.
-
 ## Looking at the data
-In pgAdmin (http://localhost:5050) or with psql:
+With psql:
 ```bash
 docker compose exec db psql -U postgres -d inventory_db -c "SELECT id, name, email, role FROM users;"
 docker compose exec db psql -U postgres -d inventory_db -c "SELECT * FROM items;"

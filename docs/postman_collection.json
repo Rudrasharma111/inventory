@@ -1,0 +1,738 @@
+{
+  "info": {
+    "name": "Inventory Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "ONE-TIME SETUP: open the collection > Variables and set adminEmail and adminPassword to the values from your .env. After that just send requests in any order: the collection logs in by itself (staff + admin) and saves both tokens. The requests named 'staff 403, then admin ...' check both roles in one go."
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Runs before every request. If there is no token yet (or it is older than 50 minutes),",
+          "// it logs in automatically, so you never have to copy or change tokens by hand.",
+          "const isAuthRequest = pm.request.url.getPath().startsWith('/auth/');",
+          "const age = Date.now() - Number(pm.collectionVariables.get('tokenTime') || 0);",
+          "const needLogin = !pm.collectionVariables.get('token') || !pm.collectionVariables.get('adminToken') || age > 50 * 60 * 1000;",
+          "if (!isAuthRequest && needLogin) {",
+          "  const base = pm.collectionVariables.get('baseUrl');",
+          "  const post = (path, data, done) => pm.sendRequest({",
+          "    url: base + path, method: 'POST', header: { 'Content-Type': 'application/json' },",
+          "    body: { mode: 'raw', raw: JSON.stringify(data) } }, done);",
+          "  const staff = { email: pm.collectionVariables.get('staffEmail'), password: pm.collectionVariables.get('staffPassword') };",
+          "  const admin = { email: pm.collectionVariables.get('adminEmail'), password: pm.collectionVariables.get('adminPassword') };",
+          "  ",
+          "  post('/auth/signup', { name: 'Staff User', phone: '9876543210', ...staff }, () => {   // 409 if it already exists: fine",
+          "    post('/auth/login', staff, (e1, staffRes) => {",
+          "      post('/auth/login', admin, (e2, adminRes) => {",
+          "        if (staffRes && staffRes.code === 200 && adminRes && adminRes.code === 200) {",
+          "          pm.collectionVariables.set('token', staffRes.json().access_token);",
+          "          pm.collectionVariables.set('adminToken', adminRes.json().access_token);",
+          "          pm.collectionVariables.set('tokenTime', String(Date.now()));",
+          "        } else {",
+          "          console.log('Auto login failed. Check staffEmail/staffPassword and adminEmail/adminPassword in the collection Variables.');",
+          "        }",
+          "      });",
+          "    });",
+          "  });",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// If a token stopped working (for example after the database was cleared), forget it:",
+          "// the next request logs in again by itself.",
+          "if (pm.response.code === 401 && !pm.request.url.getPath().startsWith('/auth/')) {",
+          "  pm.collectionVariables.unset('token');",
+          "  pm.collectionVariables.unset('adminToken');",
+          "  console.log('401: tokens cleared. Send the request again and it will log in automatically.');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/signup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signup"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Staff User\",\n  \"email\": \"{{staffEmail}}\",\n  \"phone\": \"9876543210\",\n  \"password\": \"{{staffPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 created or 409 already exists', () => pm.expect([201, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (staff + admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{staffEmail}}\",\n  \"password\": \"{{staffPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Makes sure the staff user exists (409 = it already exists, which is fine).",
+                  "pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/auth/signup', method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ name: 'Staff User', phone: '9876543210',",
+                  "    email: pm.collectionVariables.get('staffEmail'), password: pm.collectionVariables.get('staffPassword') }) }",
+                  "}, () => {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// ONE login request. Whoever is in the body (admin OR staff) is logged in, and the OTHER user is logged in automatically.",
+                  "// Both tokens are saved: token (staff) and adminToken (admin). Nothing else to copy or edit.",
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const PLACEHOLDER = 'PUT-YOUR-ADMIN-PASSWORD-HERE';",
+                  "const sent = JSON.parse(pm.variables.replaceIn(pm.request.body.raw));   // what is in the body",
+                  "const me = pm.response.json();",
+                  "const post = (path, data, done) => pm.sendRequest({",
+                  "  url: base + path, method: 'POST', header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify(data) } }, done);",
+                  "",
+                  "pm.test('Login: status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Login: returns a bearer token (role: ' + me.role + ')', () => pm.expect(me.token_type).to.eql('bearer'));",
+                  "if (pm.response.code !== 200) return;",
+                  "",
+                  "let other;   // credentials of the other user",
+                  "if (me.role === 'admin') {",
+                  "  pm.collectionVariables.set('adminToken', me.access_token);",
+                  "  pm.collectionVariables.set('adminEmail', sent.email);          // remembered for the automatic login",
+                  "  pm.collectionVariables.set('adminPassword', sent.password);",
+                  "  other = { email: pm.collectionVariables.get('staffEmail'), password: pm.collectionVariables.get('staffPassword') };",
+                  "} else {",
+                  "  pm.collectionVariables.set('token', me.access_token);",
+                  "  other = { email: pm.collectionVariables.get('adminEmail'), password: pm.collectionVariables.get('adminPassword') };",
+                  "}",
+                  "const otherName = me.role === 'admin' ? 'staff' : 'admin';",
+                  "",
+                  "pm.test('The other user (' + otherName + ') has credentials to log in', () => {",
+                  "  pm.expect(other.password, otherName + ' password is empty or still the placeholder: set adminEmail / adminPassword in the collection Variables, or put the admin email and password in this request body once').to.not.be.oneOf([undefined, '', PLACEHOLDER]);",
+                  "});",
+                  "if (!other.password || other.password === PLACEHOLDER) return;",
+                  "",
+                  "const loginOther = () => post('/auth/login', other, (err, res) => {",
+                  "  pm.test('The other user (' + otherName + ') can log in: status 200 (email tried: ' + other.email + ')', () => {",
+                  "    pm.expect(err).to.eql(null);",
+                  "    pm.expect(res.code).to.eql(200);",
+                  "  });",
+                  "  if (!err && res.code === 200) {",
+                  "    pm.collectionVariables.set(me.role === 'admin' ? 'token' : 'adminToken', res.json().access_token);",
+                  "    pm.collectionVariables.set('tokenTime', String(Date.now()));",
+                  "  }",
+                  "});",
+                  "// the staff user is created first if it does not exist yet (409 = already exists, fine)",
+                  "if (me.role === 'admin') post('/auth/signup', { name: 'Staff User', phone: '9876543210', ...other }, loginOther);",
+                  "else loginOther();"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Google Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "google"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"{{googleIdToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Needs a real Google ID token in the googleIdToken variable",
+                  "pm.test('200 with a valid Google token; 401/409/422/503 when the token is empty, invalid or Google is not configured', () => pm.expect([200, 401, 409, 422, 503]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Items",
+      "item": [
+        {
+          "name": "Create Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "items"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Keyboard\",\n  \"quantity\": 10,\n  \"price\": 49.99\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('itemId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Items (pagination + search)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/items?page=1&limit=5&search=key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "items"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                },
+                {
+                  "key": "search",
+                  "value": "key"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has pagination fields', () => { const b = pm.response.json(); pm.expect(b).to.have.keys('page', 'limit', 'total', 'items'); });",
+                  "pm.test('has X-Process-Time header (added by a middleware)', () => pm.response.to.have.header('X-Process-Time'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Item",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/items/{{itemId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "items",
+                "{{itemId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Item",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/items/{{itemId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "items",
+                "{{itemId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Keyboard\",\n  \"quantity\": 25,\n  \"price\": 49.99\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Quantity updated', () => pm.expect(pm.response.json().quantity).to.eql(25));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Item (admin 204, staff 403, then 404)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/items/{{itemId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "items",
+                "{{itemId}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Before the delete: make sure there is an item to delete (creates one if needed),",
+                  "// then check that STAFF is not allowed to delete it (403).",
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const staffToken = pm.collectionVariables.get('token');",
+                  "const call = (method, path, body, done) => {",
+                  "  const r = { url: base + path, method: method, header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + staffToken } };",
+                  "  if (body) r.body = { mode: 'raw', raw: JSON.stringify(body) };",
+                  "  pm.sendRequest(r, done);",
+                  "};",
+                  "const staffTriesToDelete = () => call('DELETE', '/items/' + pm.collectionVariables.get('itemId'), null, (e, r) => {",
+                  "  pm.test('Staff cannot delete an item (403)', () => pm.expect(r.code).to.eql(403));",
+                  "});",
+                  "const id = pm.collectionVariables.get('itemId');",
+                  "call('GET', '/items/' + (id || 0), null, (e, r) => {   // 0 = no item yet, so one is created below",
+                  "  if (id && !e && r.code === 200) staffTriesToDelete();",
+                  "  else call('POST', '/items', { name: 'Keyboard', quantity: 10, price: 49.99 }, (e2, r2) => {",
+                  "    pm.collectionVariables.set('itemId', r2.json().id);",
+                  "    staffTriesToDelete();",
+                  "  });",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const send = (method, path, token, body, done) => {",
+                  "  const req = { url: base + path, method: method,",
+                  "    header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } };",
+                  "  if (body) req.body = { mode: 'raw', raw: JSON.stringify(body) };",
+                  "  pm.sendRequest(req, done);",
+                  "};",
+                  "const itemId = pm.collectionVariables.get('itemId');",
+                  "",
+                  "// 1) This request uses the ADMIN token, so the real result (204) is shown in the response",
+                  "pm.test('Admin can delete the item (204)', () => pm.response.to.have.status(204));",
+                  "",
+                  "// 2) The deleted item is gone",
+                  "send('GET', '/items/' + itemId, pm.collectionVariables.get('token'), null, (err, res) => {",
+                  "  pm.test('Deleted item is gone (404)', () => pm.expect(res.code).to.eql(404));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List Users (admin 200, staff 403)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const send = (method, path, token, body, done) => {",
+                  "  const req = { url: base + path, method: method,",
+                  "    header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } };",
+                  "  if (body) req.body = { mode: 'raw', raw: JSON.stringify(body) };",
+                  "  pm.sendRequest(req, done);",
+                  "};",
+                  "",
+                  "// 1) This request uses the ADMIN token, so the list of users is shown in the response",
+                  "pm.test('Admin can list users (200)', () => pm.response.to.have.status(200));",
+                  "const users = pm.response.code === 200 ? pm.response.json() : [];",
+                  "const staff = users.find(u => u.email === pm.collectionVariables.get('staffEmail').toLowerCase());",
+                  "pm.test('Staff user is in the list, without password_hash', () => {",
+                  "  pm.expect(staff).to.not.eql(undefined);",
+                  "  pm.expect(staff).to.not.have.property('password_hash');",
+                  "});",
+                  "if (staff) pm.collectionVariables.set('userId', staff.id);",
+                  "",
+                  "// 2) The same call with the STAFF token is not allowed",
+                  "send('GET', '/users', pm.collectionVariables.get('token'), null, (err, res) => {",
+                  "  pm.test('Staff cannot list users (403)', () => pm.expect(res.code).to.eql(403));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change User Role (manager, then admin 422, then staff)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}/role",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{userId}}",
+                "role"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"inventory_manager\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Finds the staff user's id by itself, so this request works even when it is sent alone.",
+                  "pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/users',",
+                  "  header: { 'Authorization': 'Bearer ' + pm.collectionVariables.get('adminToken') }",
+                  "}, (err, res) => {",
+                  "  if (!err && res.code === 200) {",
+                  "    const staff = res.json().find(u => u.email === pm.collectionVariables.get('staffEmail').toLowerCase());",
+                  "    if (staff) pm.collectionVariables.set('userId', staff.id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('baseUrl');",
+                  "const send = (method, path, token, body, done) => {",
+                  "  const req = { url: base + path, method: method,",
+                  "    header: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } };",
+                  "  if (body) req.body = { mode: 'raw', raw: JSON.stringify(body) };",
+                  "  pm.sendRequest(req, done);",
+                  "};",
+                  "const adminToken = pm.collectionVariables.get('adminToken');",
+                  "const rolePath = '/users/' + pm.collectionVariables.get('userId') + '/role';",
+                  "",
+                  "// 1) This request (ADMIN token): staff -> inventory_manager",
+                  "pm.test('Admin can make a user inventory_manager (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('Role is inventory_manager', () => pm.expect(pm.response.json().role).to.eql('inventory_manager'));",
+                  "",
+                  "// 2) Nobody can be made admin",
+                  "send('PATCH', rolePath, adminToken, { role: 'admin' }, (err, res) => {",
+                  "  pm.test('Nobody can be made admin (422)', () => pm.expect(res.code).to.eql(422));",
+                  "});",
+                  "",
+                  "// 3) Put the user back to staff",
+                  "send('PATCH', rolePath, adminToken, { role: 'staff' }, (err, res) => {",
+                  "  pm.test('User is staff again (200)', () => {",
+                  "    pm.expect(res.code).to.eql(200);",
+                  "    pm.expect(res.json().role).to.eql('staff');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "staffEmail",
+      "value": "staff@example.com"
+    },
+    {
+      "key": "staffPassword",
+      "value": "password123"
+    },
+    {
+      "key": "adminEmail",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "adminPassword",
+      "value": "PUT-YOUR-ADMIN-PASSWORD-HERE"
+    },
+    {
+      "key": "googleIdToken",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "tokenTime",
+      "value": ""
+    },
+    {
+      "key": "itemId",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    }
+  ]
+}
