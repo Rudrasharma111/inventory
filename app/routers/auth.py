@@ -1,67 +1,78 @@
+"""Endpoints: /auth/signup, /auth/login, /auth/google."""
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token, hash_password, verify_google_token, verify_password
+from app.auth import (
+    create_access_token,
+    hash_password,
+    verify_google_token,
+    verify_password,
+)
 from app.database import get_db
 from app.models import User
 from app.schemas import GoogleLoginRequest, LoginRequest, SignupRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-
-def send_welcome_message(name: str, email: str):
-    """Background task: runs after the signup response is sent (pretend email)."""
-    logging.getLogger("uvicorn.error").info("Welcome message sent to %s (%s)", name, email)
+logger = logging.getLogger("uvicorn.error")
 
 
-def token_response(user: User) -> TokenResponse:
-    return TokenResponse(access_token=create_access_token(user), role=user.role)
+def send_welcome_message(name: str, email: str) -> None:
+    """Background task: runs after the response is sent (here it only writes a log line)."""
+    logger.info("Welcome message sent to %s <%s>", name, email)
 
 
 @router.post("/signup", response_model=UserOut, status_code=201)
-def signup(data: SignupRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
+def signup(data: SignupRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     email = data.email.lower()
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(409, "Email already registered")
+    # everybody starts as "staff"; the role can never be chosen at signup
     user = User(
         name=data.name,
         email=email,
         phone=data.phone,
         password_hash=hash_password(data.password),
-        role="staff",  # everybody starts as staff
+        role="staff",
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # two signups with the same email at the same moment: the unique index stops the second
+        db.rollback()
+        raise HTTPException(409, "Email already registered")
     db.refresh(user)
-    background.add_task(send_welcome_message, user.name, user.email)
+    background_tasks.add_task(send_welcome_message, user.name, user.email)
     return user
 
 
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
-    email = data.email.lower()
-    user = db.query(User).filter(User.email == email).first()
-    # Google-only users have no password, so they can never log in here.
+    user = db.query(User).filter(User.email == data.email.lower()).first()
+    # same message for "no such user", "Google-only user" and "wrong password"
     if not user or not user.password_hash or not verify_password(data.password, user.password_hash):
-        raise HTTPException(401, "Invalid email or password")
+        raise HTTPException(401, "Wrong email or password")
+    return TokenResponse(access_token=create_access_token(user), role=user.role)
 
-    return token_response(user)
 
-
-@router.post("/google", response_model=TokenResponse, include_in_schema=False)  # used by /login page
+@router.post("/google", response_model=TokenResponse)
 def google_login(data: GoogleLoginRequest, db: Session = Depends(get_db)):
     info = verify_google_token(data.id_token)
     email = info["email"].lower()
     user = db.query(User).filter(User.email == email).first()
-    if user and user.password_hash:
-        # Anyone can sign up with any email (we do not verify emails), so we never
-        # merge a Google login into a password account. Otherwise a stranger who
-        # signed up with your email first could stay inside your account.
-        raise HTTPException(409, "This email has a password account. Log in with email and password.")
-    if not user:
+    if user is None:
         user = User(name=info.get("name") or email.split("@")[0], email=email, role="staff")
         db.add(user)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, "Email already registered")
         db.refresh(user)
-    return token_response(user)
+    elif user.password_hash:
+        # never merge Google into a password account (emails are not verified at signup)
+        raise HTTPException(409, "This email already has a password account. Log in with your password.")
+    return TokenResponse(access_token=create_access_token(user), role=user.role)
