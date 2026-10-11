@@ -3,19 +3,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from app.auth import hash_password
-from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS, GOOGLE_CLIENT_ID
-from app.database import SessionLocal
-from app.login_page import LOGIN_PAGE
-from app.models import User
+from app.core.config import ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS, GOOGLE_CLIENT_ID
+from app.core.security import hash_password
+from app.database.database import SessionLocal
+from app.models.models import User
+from app.pages.login_page import LOGIN_PAGE
 from app.routers import auth, items, users
 
-
 def create_admin():
-    """The admin account always comes from .env: created if missing, otherwise its password is reset.
-
-    This is the only way to get the admin role. Nobody can be promoted to admin through the API.
-    """
     if not (ADMIN_EMAIL and ADMIN_PASSWORD):
         return
     with SessionLocal() as db:
@@ -31,7 +26,6 @@ def create_admin():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Tables are created by Alembic (`alembic upgrade head`) before the app starts.
     create_admin()
     yield
 
@@ -43,7 +37,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: lets a frontend running on another address (e.g. localhost:3000) call this API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -54,7 +47,6 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_process_time_header(request, call_next):
-    """Middleware: runs for every request and adds how long it took (see Postman > Headers)."""
     start = time.perf_counter()
     response = await call_next(request)
     response.headers["X-Process-Time"] = f"{(time.perf_counter() - start) * 1000:.1f}ms"
@@ -73,7 +65,6 @@ def health():
 
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
 def login_page():
-    """A small page with the 'Sign in with Google' button."""
     if not GOOGLE_CLIENT_ID:
         return HTMLResponse("Google login is not configured. Set GOOGLE_CLIENT_ID in .env", status_code=503)
     return LOGIN_PAGE.replace("YOUR_GOOGLE_CLIENT_ID", GOOGLE_CLIENT_ID)

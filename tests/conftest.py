@@ -1,16 +1,15 @@
 import os
 
-# Set BEFORE the app is imported, so tests never touch your real PostgreSQL database.
 os.environ["SECRET_KEY"] = "test-secret-key-only-for-tests-123456"
 os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import hash_password
-from app.database import Base, SessionLocal, engine
+from app.core.security import hash_password
+from app.database.database import Base, SessionLocal, engine
 from app.main import app
-from app.models import User
+from app.models.models import User
 
 
 def login(client, email, password):
