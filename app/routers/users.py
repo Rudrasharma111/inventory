@@ -1,22 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
-from app.auth import require_admin
+from app.core.security import require_admin
 from app.database import get_db
 from app.models import User
-from app.schemas import RoleUpdate, UserOut
+from app.schemas import Id, RoleUpdate, UserOut
 
 router = APIRouter(prefix="/users", tags=["Users"])
-
 
 @router.get("", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     return db.query(User).order_by(User.id).all()
 
-
 @router.patch("/{user_id}/role", response_model=UserOut)
 def change_role(
-    user_id: int,
+    user_id: Id,
     data: RoleUpdate,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
