@@ -17,7 +17,7 @@ flowchart LR
     S --> DB[(PostgreSQL)]
 ```
 
-The business rules (staff can update only own items, only admin/manager can delete, role comes from DB, 409 on a duplicate email) live **once** in a service layer. REST routers, GraphQL resolvers and gRPC servicers are thin wrappers that only translate the request and the error. So the three APIs cannot behave differently.
+The business rules (any logged-in user can update items, only admin/manager can delete, the role comes from the database, 409 on a duplicate email) are the same in REST, GraphQL and gRPC.
 
 ## 2. Schema
 
@@ -41,7 +41,7 @@ type ItemCreator {               # only public fields: email/phone stay admin-on
 type Item {
   id: ID!
   name: String!
-  quantity: Int!                 # 0 = out of stock
+  quantity: Int!                 # 1 to 1,000,000
   price: Float!                  # NUMERIC(10,2) in PostgreSQL, 2 decimals (same as REST)
   createdBy: ID!                 # users.id, same as REST "created_by"
   creator: ItemCreator!          # GraphQL extra: get the creator's name in the same call
@@ -52,16 +52,16 @@ type ItemPage { page: Int!  limit: Int!  total: Int!  items: [Item!]! }
 type AuthPayload { accessToken: String!  tokenType: String!  role: Role! }
 
 input SignupInput {
-  name: String!                  # 1-100 chars, spaces at the ends removed
+  name: String!                  # 1-50 chars, spaces at the ends removed
   email: String!                 # valid email
   phone: String                  # 7-15 digits, optional leading +
   password: String!              # 8-64 chars, max 72 bytes
 }
 
 input ItemInput {
-  name: String!                  # 1-100 chars
-  quantity: Int!                 # >= 0
-  price: Float!                  # >= 0.01 and <= 99999999.99
+  name: String!                  # 1-50 chars
+  quantity: Int!                 # 1 to 1,000,000
+  price: Float!                  # 1 to 1,000,000.01 and <= 99999999.99
 }
 
 type Query {
@@ -76,7 +76,7 @@ type Mutation {
   login(email: String!, password: String!): AuthPayload!       # public
   googleLogin(idToken: String!): AuthPayload!                  # public
   createItem(input: ItemInput!): Item!                         # logged in, createdBy = token user
-  updateItem(id: ID!, input: ItemInput!): Item!                # staff: own items only
+  updateItem(id: ID!, input: ItemInput!): Item!                # any logged-in user
   deleteItem(id: ID!): Boolean!                                # admin or inventory_manager
   updateUserRole(id: ID!, role: AssignableRole!): User!        # admin only
 }
@@ -134,7 +134,7 @@ mutation { deleteItem(id: 1) }                           # true, or FORBIDDEN fo
 | `GET /items?page&limit&search` | `query items` | 200 |
 | `GET /items/{id}` | `query item` | 200 |
 | `PUT /items/{id}` | `mutation updateItem` | 200 |
-| `DELETE /items/{id}` | `mutation deleteItem` | 204 (here `true`) |
+| `DELETE /items/{id}` | `mutation deleteItem` | 200 (here `true`) |
 | `GET /users` | `query users` | 200 |
 | `PATCH /users/{id}/role` | `mutation updateUserRole` | 200 |
 

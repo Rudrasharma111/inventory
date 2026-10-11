@@ -46,14 +46,14 @@ message User {
 message Item {
   int32 id = 1;
   string name = 2;
-  int32 quantity = 3;              // >= 0, 0 = out of stock
+  int32 quantity = 3;              // 1 to 1,000,000
   double price = 4;                // NUMERIC(10,2) in PostgreSQL, 2 decimals (same as REST)
   int32 created_by = 5;            // users.id
 }
 
 // ---- Auth ----
 message SignupRequest {
-  string name = 1;                 // 1-100 chars, spaces at the ends removed
+  string name = 1;                 // 1-50 chars, spaces at the ends removed
   string email = 2;                // valid email
   optional string phone = 3;       // 7-15 digits, optional leading +
   string password = 4;             // 8-64 chars, max 72 bytes
@@ -106,7 +106,7 @@ service InventoryService {                                                     /
   rpc CreateItem (CreateItemRequest) returns (Item);                           // created_by = token user
   rpc GetItem (GetItemRequest) returns (Item);
   rpc ListItems (ListItemsRequest) returns (ListItemsResponse);
-  rpc UpdateItem (UpdateItemRequest) returns (Item);                           // staff: own items only
+  rpc UpdateItem (UpdateItemRequest) returns (Item);                           // any logged-in user
   rpc DeleteItem (DeleteItemRequest) returns (google.protobuf.Empty);          // admin or inventory_manager
 }
 
@@ -128,7 +128,7 @@ service UserService {                                                          /
 | 422 | `INVALID_ARGUMENT` | Empty name, quantity < 0, price < 0.01, bad email, short password, limit > 100, role unspecified |
 | 503 | `UNAVAILABLE` | Google login not configured |
 
-The status message carries the same text as REST `detail` (for example `"Item not found"`). Success: `DeleteItem` returns `Empty` (REST 204). `Signup` also starts the background task `send_welcome_message`, like REST.
+The status message carries the same text as REST `detail` (for example `"Item not found"`). Success: `DeleteItem` returns `Empty` (REST 200 + message). `Signup` also starts the background task `send_welcome_message`, like REST.
 
 ## 4. REST ↔ gRPC
 | REST | gRPC call |

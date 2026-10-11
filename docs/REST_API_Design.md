@@ -31,8 +31,8 @@ Plural nouns, lowercase, no verbs in the URL. The HTTP method says what happens.
 | POST | `/items` | logged in | 201 | 401, 422 |
 | GET | `/items?page=1&limit=10&search=` | logged in | 200 | 401, 422 |
 | GET | `/items/{item_id}` | logged in | 200 | 401, 404 |
-| PUT | `/items/{item_id}` | logged in (staff: own items only) | 200 | 401, 403, 404, 422 |
-| DELETE | `/items/{item_id}` | **admin or inventory_manager** | 204 | 401, 403, 404 |
+| PUT | `/items/{item_id}` | logged in | 200 | 401, 404, 422 |
+| DELETE | `/items/{item_id}` | **admin or inventory_manager** | 200 | 401, 403, 404 |
 | GET | `/users` | **admin only** | 200 | 401, 403 |
 | PATCH | `/users/{user_id}/role` | **admin only** | 200 | 400, 401, 403, 404, 422 |
 
@@ -44,7 +44,7 @@ Send the token as: `Authorization: Bearer <access_token>`
 ```json
 { "name": "Rahul Sharma", "email": "user@example.com", "phone": "+919876543210", "password": "password123" }
 ```
-`name`: 1–100 characters, spaces at the ends are removed (required) · `email`: valid email (required) · `phone`: 7–15 digits, optional `+` at the start (optional) · `password`: 8–64 characters, at most 72 bytes (required). Response `201`:
+`name`: 1–50 characters, spaces at the ends are removed (required) · `email`: valid email (required) · `phone`: 7–15 digits, optional `+` at the start (optional) · `password`: 8–64 characters, at most 72 bytes (required). Response `201`:
 ```json
 { "id": 1, "name": "Rahul Sharma", "email": "user@example.com", "phone": "+919876543210", "role": "staff" }
 ```
@@ -70,7 +70,7 @@ Response `200`: same as login (new Google users get role `staff`). An email that
 ```json
 { "name": "Keyboard", "quantity": 10, "price": 49.99 }
 ```
-`name`: 1–100 characters (required) · `quantity`: integer >= 0, where 0 means out of stock (required) · `price`: number from 0.01 to 99999999.99, stored with 2 decimals (required).
+`name`: 1–50 characters (required) · `quantity`: integer from 1 to 1,000,000 (required) · `price`: number from 0.01 to 99999999.99, stored with 2 decimals (required).
 Response `201` (create) / `200` (update):
 ```json
 { "id": 1, "name": "Keyboard", "quantity": 10, "price": 49.99, "created_by": 1 }
@@ -86,7 +86,7 @@ Query: `page` (default 1) · `limit` (default 10, max 100) · `search` (optional
 ```
 
 ### DELETE `/items/{item_id}`
-Response `204` (empty body).
+Response `200`: `{ "message": "Item deleted successfully" }`.
 
 ### GET `/users` (admin only)
 Response `200`:
@@ -107,7 +107,7 @@ The admin's own role cannot be changed (`400`). The new role works immediately (
 ## 4. Status codes used
 | Code | Meaning here |
 | :--- | :--- |
-| 200 / 201 / 204 | OK / created / deleted (no body) |
+| 200 / 201 | OK (delete also returns a message) / created |
 | 400 | Not allowed change (the admin's role) |
 | 401 | No token, bad token, expired token, or wrong login |
 | 403 | Logged in, but the role is not allowed |
