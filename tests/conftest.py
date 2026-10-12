@@ -1,16 +1,13 @@
 import os
-
-os.environ["SECRET_KEY"] = "test-secret-key-only-for-tests-123456"
-os.environ["DATABASE_URL"] = "sqlite:///./test.db"
-
 import pytest
 from fastapi.testclient import TestClient
-
 from app.core.security import hash_password
 from app.database.database import Base, SessionLocal, engine
 from app.main import app
 from app.models.models import User
 
+os.environ["SECRET_KEY"] = "test-secret-key-only-for-tests-123456"
+os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 
 def login(client, email, password):
     """Logs in and returns the Authorization header."""
@@ -20,7 +17,6 @@ def login(client, email, password):
 
 @pytest.fixture()
 def client():
-    """A fresh, empty test database for every test."""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     return TestClient(app)
@@ -35,7 +31,6 @@ def staff_headers(client):
 
 @pytest.fixture()
 def admin_headers(client):
-    # The admin is created directly in the database (in the real app: from .env).
     with SessionLocal() as db:
         db.add(User(name="Admin", email="admin@example.com", password_hash=hash_password("adminpass123"), role="admin"))
         db.commit()

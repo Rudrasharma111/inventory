@@ -1,142 +1,95 @@
-# GraphQL Design (specification only)
+# GraphQL API Design Specification
 
-Same application, same rules and same results as the REST API (`docs/REST_API_Design.md`). Only the way of asking is different.
+This document provides the GraphQL architecture and API specification for the Inventory Management Service. It enforces the exact same business rules, authentication logic, and database operations as the REST API, but uses a single flexible endpoint.
 
-- One endpoint: `POST /graphql` (one URL, the operation name decides what happens)
-- Auth: the **same JWT** as REST: `Authorization: Bearer <access_token>`
-- Signup, login and googleLogin are public. Everything else needs a token.
-- The role is read from the database (not from the token), exactly like REST.
+---
 
-## 1. How it works (same logic as REST)
+## 1. Resource Structure & Endpoint
+Unlike REST which uses multiple URLs for different resources, GraphQL operates through a single endpoint. The action is determined by the Query (for reading) or Mutation (for writing).
 
-```mermaid
-flowchart LR
-    R[REST router] --> S[Service layer<br/>create_item, update_item, ...]
-    G[GraphQL resolver] --> S
-    P[gRPC servicer] --> S
-    S --> DB[(PostgreSQL)]
-```
+* **Endpoint:** `POST /graphql`
+* **Format:** `application/json`
+* **Public Operations:** `signup`, `login`, `googleLogin`, `health`.
+* **Secured Operations:** All other operations require a JWT token.
 
-The business rules (any logged-in user can update items, only admin/manager can delete, the role comes from the database, 409 on a duplicate email) are the same in REST, GraphQL and gRPC.
+---
 
-## 2. Schema
+## 2. API Schema & Operations (REST vs GraphQL)
 
-```graphql
-enum Role { ADMIN INVENTORY_MANAGER STAFF }
-enum AssignableRole { INVENTORY_MANAGER STAFF }     # nobody can be made ADMIN (same as REST)
+Instead of HTTP methods (GET/POST/PUT/DELETE), GraphQL uses a strongly typed schema.
 
-type User {
-  id: ID!
-  name: String!
-  email: String!
-  phone: String                  # optional
-  role: Role!
-}
+| Operation Type | Name | Equivalent REST | Access Level |
+| :--- | :--- | :--- | :--- |
+| **Query** | `health` | `GET /health` | Public |
+| **Mutation** | `signup` | `POST /auth/signup` | Public |
+| **Mutation** | `login` | `POST /auth/login` | Public |
+| **Mutation** | `googleLogin`| `POST /auth/google` | Public |
+| **Query** | `items` | `GET /items?page&limit` | Logged In |
+| **Query** | `item(id)` | `GET /items/{id}` | Logged In |
+| **Mutation** | `createItem` | `POST /items` | Logged In |
+| **Mutation** | `updateItem` | `PUT /items/{id}` | Logged In |
+| **Mutation** | `deleteItem` | `DELETE /items/{id}`| `inventory_manager` / `admin` |
+| **Query** | `users` | `GET /users` | `admin` only |
+| **Mutation** | `updateUserRole`| `PATCH /users/{id}/role`| `admin` only |
 
-type ItemCreator {               # only public fields: email/phone stay admin-only (like GET /users)
-  id: ID!
-  name: String!
-}
+---
 
-type Item {
-  id: ID!
-  name: String!
-  quantity: Int!                 # 0 = out of stock
-  price: Float!                  # NUMERIC(10,2) in PostgreSQL, 2 decimals (same as REST)
-  createdBy: ID!                 # users.id, same as REST "created_by"
-  creator: ItemCreator!          # GraphQL extra: get the creator's name in the same call
-}
+## 3. Request / Response Contract
 
-type ItemPage { page: Int!  limit: Int!  total: Int!  items: [Item!]! }
+All GraphQL responses return **HTTP 200 OK**. Errors are handled inside the JSON response body under the `errors` array, using custom extension codes.
 
-type AuthPayload { accessToken: String!  tokenType: String!  role: Role! }
+### A. Auth Contracts
+* **Signup (Mutation)**
+  * **Input:** `{ name: "Rudra", email: "user@example.com", password: "pass" }`
+  * **Returns:** `User` object (Role defaults to `STAFF`).
+* **Login (Mutation)**
+  * **Input:** `{ email: "user@example.com", password: "pass" }`
+  * **Returns:** `AuthPayload` containing `accessToken`, `tokenType`, and `role`.
 
-input SignupInput {
-  name: String!                  # 1-100 chars, spaces at the ends removed
-  email: String!                 # valid email
-  phone: String                  # 7-15 digits, optional leading +
-  password: String!              # 8-64 chars, max 72 bytes
-}
+### B. Items Contracts (The GraphQL Advantage)
+* **Read Items (Query)**
+  * *Advantage over REST:* You can fetch the item AND its creator's details in a single request (no over-fetching/under-fetching).
+  * **Query:**
+    ```graphql
+    query {
+      items(page: 1, limit: 10) {
+        total
+        items { id name price creator { name } }
+      }
+    }
+    ```
+* **Create Item (Mutation)**
+  * **Input:** `ItemInput` `{ name: "Keyboard", quantity: 10, price: 49.99 }`
+  * **Returns:** `Item` object.
 
-input ItemInput {
-  name: String!                  # 1-100 chars
-  quantity: Int!                 # >= 0
-  price: Float!                  # >= 0.01 and <= 99999999.99
-}
+### C. Error Handling (Extensions Code)
+If a rule is violated, GraphQL returns standard codes mapped directly from REST concepts:
+* `UNAUTHENTICATED` (REST 401) - Missing or expired token.
+* `FORBIDDEN` (REST 403) - Role not allowed (e.g., Staff trying to delete).
+* `NOT_FOUND` (REST 404) - Item or user does not exist.
+* `CONFLICT` (REST 409) - Email already registered.
+* `BAD_USER_INPUT` (REST 422) - Invalid Pydantic validation (e.g., negative price).
 
-type Query {
-  health: String!                                              # public
-  item(id: ID!): Item!                                         # logged in
-  items(page: Int = 1, limit: Int = 10, search: String): ItemPage!   # logged in, page >= 1, limit 1-100
-  users: [User!]!                                              # admin only
-}
+---
 
-type Mutation {
-  signup(input: SignupInput!): User!                           # public, role = STAFF
-  login(email: String!, password: String!): AuthPayload!       # public
-  googleLogin(idToken: String!): AuthPayload!                  # public
-  createItem(input: ItemInput!): Item!                         # logged in, createdBy = token user
-  updateItem(id: ID!, input: ItemInput!): Item!                # any logged-in user
-  deleteItem(id: ID!): Boolean!                                # admin or inventory_manager
-  updateUserRole(id: ID!, role: AssignableRole!): User!        # admin only
-}
-```
+## 4. FastAPI Service Integration
+The backend engine leverages the exact same service layer as REST.
+* **Library:** `strawberry-graphql` is mounted on the FastAPI app at `/graphql`.
+* **Context Injection:** The exact same JWT verification function (`get_current_user`) used in REST is injected into the GraphQL Context.
+* **Shared Logic:** The business rules (e.g., checking if an email is duplicate) live in a shared service layer, meaning REST and GraphQL execute the exact same Python functions under the hood.
 
-## 3. Rules (identical to REST)
+---
 
-| Rule | Where it is enforced |
-| :--- | :--- |
-| Token missing / bad / expired / user deleted | `UNAUTHENTICATED` (REST 401) |
-| Role not allowed (staff deleting, non-admin listing users, staff editing another user's item) | `FORBIDDEN` (REST 403) |
-| Item or user not found | `NOT_FOUND` (REST 404) |
-| Email already registered, or Google email has a password account | `CONFLICT` (REST 409) |
-| Invalid input (empty name, quantity < 0, price < 0.01, bad email, short password, limit > 100) | `BAD_USER_INPUT` (REST 422) |
-| Changing the admin's role | `BAD_REQUEST` (REST 400) |
-| Google login not configured | `SERVICE_UNAVAILABLE` (REST 503) |
-| Signup starts the background task `send_welcome_message` | same service function as REST |
-| `created_by` is taken from the token, never from the input | same service function as REST |
+## 5. Auth
+Authentication remains completely stateless and identical to the REST implementation.
+* **JWT Configuration:** Uses `PyJWT` (`HS256` signature, 60-minute expiry).
+* **Transmission:** Tokens must be sent in the HTTP headers: `Authorization: Bearer <access_token>`.
+* **Dynamic Roles:** Even though the token contains the user's role, the GraphQL resolver strictly reads the role from the PostgreSQL database during the request to ensure immediate application of promotions or demotions.
 
-## 4. Errors
-GraphQL answers with **HTTP 200** and an `errors` list. The code is in `extensions.code`:
-```json
-{ "data": null,
-  "errors": [ { "message": "Item not found", "path": ["item"], "extensions": { "code": "NOT_FOUND" } } ] }
-```
-(Only a request that is not valid GraphQL at all gets HTTP 400.)
+---
 
-## 5. Examples
-
-Login, then call with the token:
-```graphql
-mutation { login(email: "user@example.com", password: "password123") { accessToken role } }
-```
-```graphql
-query {
-  items(page: 1, limit: 5, search: "mouse") {
-    total
-    items { id name quantity price creator { name } }   # REST needs a second call for the creator
-  }
-}
-```
-```graphql
-mutation { createItem(input: { name: "Keyboard", quantity: 10, price: 49.99 }) { id createdBy } }
-mutation { deleteItem(id: 1) }                           # true, or FORBIDDEN for staff
-```
-
-## 6. REST ↔ GraphQL
-| REST | GraphQL | REST success |
-| :--- | :--- | :--- |
-| `GET /health` | `query health` | 200 |
-| `POST /auth/signup` | `mutation signup` | 201 |
-| `POST /auth/login` | `mutation login` | 200 |
-| `POST /auth/google` | `mutation googleLogin` | 200 |
-| `POST /items` | `mutation createItem` | 201 |
-| `GET /items?page&limit&search` | `query items` | 200 |
-| `GET /items/{id}` | `query item` | 200 |
-| `PUT /items/{id}` | `mutation updateItem` | 200 |
-| `DELETE /items/{id}` | `mutation deleteItem` | 204 (here `true`) |
-| `GET /users` | `query users` | 200 |
-| `PATCH /users/{id}/role` | `mutation updateUserRole` | 200 |
-
-## 7. If it were built
-`strawberry-graphql` mounted in FastAPI at `/graphql`; the JWT check is the same `get_current_user` code, put in the GraphQL context; permission classes `IsAuthenticated` and `HasRole("admin")` replace `require_roles`. Not implemented, as the assignment asks for the design only.
+## 6. PostgreSQL Integration
+The database layer (PostgreSQL 15 + SQLAlchemy) remains unchanged.
+* **Models:** GraphQL types (`Item`, `User`) map directly to the SQLAlchemy ORM models.
+* **Data Integrity:** `items.created_by` references `users.id`. Users who have created items cannot be deleted. 
+* **Precision:** Prices are handled as `NUMERIC(10,2)` in the DB and mapped to `Float` in GraphQL.

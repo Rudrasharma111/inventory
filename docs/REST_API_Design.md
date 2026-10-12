@@ -1,123 +1,104 @@
-# REST API Design
+# REST API Design Specification
 
-Base URL: `http://localhost:8000` · Format: JSON · Swagger docs: `/docs`
+This document provides the complete API specification and architectural design for the Inventory Management Service.
 
-## 1. Resources and naming
-Plural nouns, lowercase, no verbs in the URL. The HTTP method says what happens.
+---
 
-| Resource | URL |
-| :--- | :--- |
-| auth | `/auth/signup`, `/auth/login`, `/auth/google` |
-| items | `/items`, `/items/{item_id}` |
-| users (admin only) | `/users`, `/users/{user_id}/role` |
-| health | `/health` |
+## 1. Resource Structure
+The API strictly follows RESTful naming conventions. Resources are represented as plural nouns, lowercase, and without verbs. 
 
-| Action | Method + URL | Same pattern for a `users` resource |
-| :--- | :--- | :--- |
-| List | `GET /items` | `GET /users` |
-| Read one | `GET /items/{id}` | `GET /users/{id}` |
-| Create | `POST /items` | `POST /users` |
-| Update | `PUT /items/{id}` | `PUT /users/{id}` |
-| Delete | `DELETE /items/{id}` | `DELETE /users/{id}` |
+* **`auth`**: Handles user authentication, registration, and Google OAuth.
+* **`items`**: Represents the inventory products. Each item is linked to the user who created it.
+* **`users`**: Represents system users. Used strictly for administrative management (role assignments).
+* **`health`**: A simple resource to check server status.
 
-## 2. Endpoints
+---
 
-| Method | URL | Who | Success | Errors |
+## 2. API URL Structure & Method
+The action is defined by the HTTP method rather than the URL itself.
+
+| Resource | Action | Method | API URL | Access Level |
 | :--- | :--- | :--- | :--- | :--- |
-| GET | `/health` | public | 200 | - |
-| POST | `/auth/signup` | public | 201 | 409 email exists, 422 invalid data |
-| POST | `/auth/login` | public | 200 | 401 wrong email/password |
-| POST | `/auth/google` | public | 200 | 401 invalid Google token, 409 email has a password account, 503 Google login not configured (used by the `/login` page) |
-| POST | `/items` | logged in | 201 | 401, 422 |
-| GET | `/items?page=1&limit=10&search=` | logged in | 200 | 401, 422 |
-| GET | `/items/{item_id}` | logged in | 200 | 401, 404 |
-| PUT | `/items/{item_id}` | logged in | 200 | 401, 404, 422 |
-| DELETE | `/items/{item_id}` | **admin or inventory_manager** | 204 | 401, 403, 404 |
-| GET | `/users` | **admin only** | 200 | 401, 403 |
-| PATCH | `/users/{user_id}/role` | **admin only** | 200 | 400, 401, 403, 404, 422 |
+| **auth** | Sign Up | POST | `/auth/signup` | Public |
+| **auth** | Password Login | POST | `/auth/login` | Public |
+| **auth** | Google Login | POST | `/auth/google` | Public |
+| **items** | List Items | GET | `/items?page=1&limit=10` | Logged In |
+| **items** | Read One Item | GET | `/items/{item_id}` | Logged In |
+| **items** | Create Item | POST | `/items` | Logged In |
+| **items** | Update Item | PUT | `/items/{item_id}` | Logged In |
+| **items** | Delete Item | DELETE | `/items/{item_id}` | `inventory_manager` or `admin` |
+| **users** | List Users | GET | `/users` | `admin` only |
+| **users** | Change Role | PATCH | `/users/{user_id}/role`| `admin` only |
+| **health** | Server Status | GET | `/health` | Public |
 
-Send the token as: `Authorization: Bearer <access_token>`
+---
 
-## 3. Request / response contracts
+## 3. Request / Response Contract
+All data is exchanged in `application/json` format. 
 
-### POST `/auth/signup`
-```json
-{ "name": "Rahul Sharma", "email": "user@example.com", "phone": "+919876543210", "password": "password123" }
-```
-`name`: 1–100 characters, spaces at the ends are removed (required) · `email`: valid email (required) · `phone`: 7–15 digits, optional `+` at the start (optional) · `password`: 8–64 characters, at most 72 bytes (required). Response `201`:
-```json
-{ "id": 1, "name": "Rahul Sharma", "email": "user@example.com", "phone": "+919876543210", "role": "staff" }
-```
-Everybody who signs up gets the role `staff`.
+### A. Auth Contracts
+* **POST `/auth/signup`**
+  * **Request:** `{ "name": "Rahul", "email": "user@example.com", "phone": "+919876543210", "password": "pass" }`
+  * **Response (201):** `{ "id": 1, "name": "Rahul", "email": "user@example.com", "phone": "+919876543210", "role": "staff" }`
+* **POST `/auth/login`**
+  * **Request:** `{ "email": "user@example.com", "password": "pass" }`
+  * **Response (200):** `{ "access_token": "<jwt>", "token_type": "bearer", "role": "staff" }`
 
-### POST `/auth/login`
-```json
-{ "email": "user@example.com", "password": "password123" }
-```
-Response `200`:
-```json
-{ "access_token": "<jwt>", "token_type": "bearer", "role": "staff" }
-```
-There is no login rate limiting (see the README, Known limitations).
+### B. Items Contracts
+* **POST `/items` & PUT `/items/{item_id}`**
+  * **Request:** `{ "name": "Keyboard", "quantity": 10, "price": 49.99 }`
+  * **Validation:** `name`: 1-100 chars, `quantity`: >= 0, `price`: 0.01 to 99999999.99.
+  * **Response (201/200):** `{ "id": 1, "name": "Keyboard", "quantity": 10, "price": 49.99, "created_by": 1 }`
+* **GET `/items`**
+  * **Response (200):** `{ "page": 1, "limit": 10, "total": 25, "items": [ { ...item_data... } ] }`
+* **DELETE `/items/{item_id}`**
+  * **Response (204):** Empty body.
 
-### POST `/auth/google`
-```json
-{ "id_token": "<Google ID token>" }
-```
-Response `200`: same as login (new Google users get role `staff`). An email that already has a password account gets `409` (accounts are never merged, because signup does not verify emails).
+### C. Users Contract
+* **PATCH `/users/{user_id}/role`**
+  * **Request:** `{ "role": "inventory_manager" }`
+  * **Response (200):** Returns updated user object. (400 Bad Request if trying to change admin's role).
 
-### POST `/items` and PUT `/items/{item_id}`
-```json
-{ "name": "Keyboard", "quantity": 10, "price": 49.99 }
-```
-`name`: 1–100 characters (required) · `quantity`: integer >= 0, where 0 means out of stock (required) · `price`: number from 0.01 to 99999999.99, stored with 2 decimals (required).
-Response `201` (create) / `200` (update):
-```json
-{ "id": 1, "name": "Keyboard", "quantity": 10, "price": 49.99, "created_by": 1 }
-```
+---
 
-### GET `/items`
-Query: `page` (default 1) · `limit` (default 10, max 100) · `search` (optional, part of the name, not case sensitive). Response `200`:
-```json
-{
-  "page": 1, "limit": 10, "total": 25,
-  "items": [ { "id": 1, "name": "Keyboard", "quantity": 10, "price": 49.99, "created_by": 1 } ]
-}
-```
+## 4. FastAPI Service
+The backend engine is powered by FastAPI, leveraging its modern asynchronous capabilities.
 
-### DELETE `/items/{item_id}`
-Response `204` (empty body).
+* **Modularity:** Routes are divided into `auth.py`, `items.py`, and `users.py` and connected via `app.include_router()`.
+* **Validation:** Pydantic models (Schemas) enforce strict data types and constraints before requests hit the business logic.
+* **Middleware:**
+  * **CORS:** Uses `CORSMiddleware` to allow specific frontend origins safely.
+  * **Performance Tracking:** A custom HTTP middleware calculates process time and appends `X-Process-Time` (in ms) to every response header.
+* **Lifespan Manager:** Ensures the system always has an Admin account by reading `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env` on server startup.
 
-### GET `/users` (admin only)
-Response `200`:
-```json
-[ { "id": 1, "name": "Rahul Sharma", "email": "user@example.com", "phone": "+919876543210", "role": "staff" } ]
-```
+---
 
-### PATCH `/users/{user_id}/role` (admin only)
-```json
-{ "role": "inventory_manager" }
-```
-`role` must be `"inventory_manager"` or `"staff"` (nobody can be made `admin`). Response `200`:
-```json
-{ "id": 1, "name": "Rahul Sharma", "email": "user@example.com", "phone": "+919876543210", "role": "inventory_manager" }
-```
-The admin's own role cannot be changed (`400`). The new role works immediately (the server reads the role from the database).
+## 5. Auth
+Authentication is completely stateless, utilizing JSON Web Tokens (JWT).
 
-## 4. Status codes used
-| Code | Meaning here |
-| :--- | :--- |
-| 200 / 201 / 204 | OK / created / deleted (no body) |
-| 400 | Not allowed change (the admin's role) |
-| 401 | No token, bad token, expired token, or wrong login |
-| 403 | Logged in, but the role is not allowed |
-| 404 | Item or user not found |
-| 409 | Email already registered / email has a password account |
-| 422 | Request body or query is invalid (Pydantic) |
-| 503 | Google login is not configured on the server (no `GOOGLE_CLIENT_ID`) |
+* **JWT Configuration:** Uses `PyJWT` with `HS256` signature. `SECRET_KEY` is loaded securely from `.env`. Tokens expire in 60 minutes.
+* **Transmission:** Tokens must be sent in the header as `Authorization: Bearer <access_token>`.
+* **Token Claims:** Contains `sub` (User ID), `email`, `role`, `iat`, and `exp`.
+* **Security & Roles Design:** 
+  * Although the token contains the `role` for client convenience, **the server always fetches the role from the database** during requests. This ensures immediate effect if a user is promoted, demoted, or deleted.
+  * **Roles:** 
+    * `staff`: Default for all signups. Read/Write items.
+    * `inventory_manager`: Read/Write/Delete items.
+    * `admin`: Manage users and roles.
+  * Passwords are encrypted with `bcrypt`. Google OAuth bypasses passwords (leaves password_hash NULL).
 
-Errors look like `{ "detail": "Item not found" }`. For `422`, `detail` lists the invalid fields.
-Every response has the header `X-Process-Time` (how long the request took, added by a middleware).
+---
 
-## 5. Idempotency
-`GET`, `PUT`, `DELETE` are idempotent (repeating them leaves the same final state; a repeated `DELETE` gives `404` the second time, but nothing changes). `POST` is not idempotent: each call creates a new row. `PATCH` is idempotent here because it sets a fixed role.
+## 6. PostgreSQL Integration
+The database layer uses PostgreSQL 15, managed via SQLAlchemy (ORM) and Alembic (Migrations).
+
+* **`users` Table:**
+  * `id`: Primary Key
+  * `email`: VARCHAR(255) - Enforced as **UNIQUE** and **Indexed** for high-speed login queries.
+  * `password_hash`: Nullable (to support Google OAuth users).
+* **`items` Table:**
+  * `name`: VARCHAR(100) - **Indexed** to support fast text-based searching without performance bottlenecks.
+  * `price`: `NUMERIC(10,2)` - Used instead of Float to guarantee exact precision and avoid rounding errors for currency.
+* **Relationships:**
+  * **One-to-Many:** One user creates many items (`items.created_by` -> `users.id`).
+  * **Data Integrity:** The foreign key strictly prevents deleting a user if they have created items, avoiding orphaned database records.

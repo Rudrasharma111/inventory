@@ -2,33 +2,6 @@
 
 Tables are created and versioned with **Alembic** migrations (`alembic/versions/`). `alembic upgrade head` runs automatically when the Docker container starts.
 
-## ERD
-![ERD](erd.svg)
-
-The same diagram as text (Mermaid, shown by GitHub):
-
-```mermaid
-erDiagram
-    USERS ||--o{ ITEMS : creates
-
-    USERS {
-        int id PK
-        string name
-        string email UK "unique, indexed"
-        string phone "optional"
-        string password_hash "NULL for Google users"
-        string role "admin, inventory_manager or staff"
-    }
-
-    ITEMS {
-        int id PK
-        string name "indexed"
-        int quantity
-        numeric price "NUMERIC(10,2)"
-        int created_by FK "references users.id"
-    }
-```
-
 ## Table definitions
 
 ### `users`

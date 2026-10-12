@@ -25,14 +25,13 @@ def save_new_user(db: Session, user: User) -> None:
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, "Email already registered")
+        raise HTTPException(409, "Email already Registered")
     db.refresh(user)
-
 
 @router.post("/signup", response_model=UserOut, status_code=201)
 def signup(data: SignupRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if find_user(db, data.email):
-        raise HTTPException(409, "Email already registered")
+        raise HTTPException(409, "Email already Registered")
     user = User(
         name=data.name,
         email=data.email.lower(),
@@ -49,7 +48,7 @@ def signup(data: SignupRequest, background_tasks: BackgroundTasks, db: Session =
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     user = find_user(db, data.email)
     if not user or not user.password_hash or not verify_password(data.password, user.password_hash):
-        raise HTTPException(401, "Wrong email or password")
+        raise HTTPException(401, "Wrong email or Passsword")
     return TokenResponse(access_token=create_access_token(user), role=user.role)
 
 
@@ -62,5 +61,5 @@ def google_login(data: GoogleLoginRequest, db: Session = Depends(get_db)):
         user = User(name=info.get("name") or email.split("@")[0], email=email, role="staff")
         save_new_user(db, user)
     elif user.password_hash:
-        raise HTTPException(409, "This email already has a password account. Log in with your password.")
+        raise HTTPException(409, "This email already has a password account Log in with your password")
     return TokenResponse(access_token=create_access_token(user), role=user.role)

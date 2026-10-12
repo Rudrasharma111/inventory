@@ -2,7 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from app.core.security import get_current_user, require_admin_or_manager
+from app.core.security import get_current_user,require_admin_or_manager
 from app.database.database import get_db
 from app.models.models import Item, User
 from app.schemas.schemas import ItemIn, ItemOut, ItemPage
