@@ -2,7 +2,6 @@
 .git
 venv
 __pycache__
-tests
 *.pyc
 .pytest_cache
 .vscode

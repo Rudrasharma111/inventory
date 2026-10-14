@@ -1,18 +1,17 @@
 import os
+os.environ["SECRET_KEY"] = "test-secret-key"
+os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 import pytest
 from fastapi.testclient import TestClient
-from app.core.security import hash_password
-from app.database.database import Base, SessionLocal, engine
+from app.database import Base, SessionLocal, engine
 from app.main import app
-from app.models.models import User
+from app.models import User
+from app.core.security import hash_password
 
-os.environ["SECRET_KEY"] = "test-secret-key-only-for-tests-123456"
-os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 
 def login(client, email, password):
-    """Logs in and returns the Authorization header."""
-    token = client.post("/auth/login", json={"email": email, "password": password}).json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    response = client.post("/auth/login", json={"email": email, "password": password})
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 @pytest.fixture()
@@ -24,9 +23,8 @@ def client():
 
 @pytest.fixture()
 def staff_headers(client):
-    body = {"name": "Staff One", "email": "staff@example.com", "password": "password123"}
-    client.post("/auth/signup", json=body)
-    return login(client, body["email"], body["password"])
+    client.post("/auth/signup", json={"name": "Staff", "email": "staff@example.com", "password": "password123"})
+    return login(client, "staff@example.com", "password123")
 
 
 @pytest.fixture()

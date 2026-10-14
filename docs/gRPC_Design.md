@@ -1,104 +1,167 @@
-# REST API Design Specification
+# gRPC Design Specification for Inventory Management Service
 
-This document provides the complete API specification and architectural design for the Inventory Management Service.
+Same application, same rules and same results as the REST API (`docs/REST_API_Design.md`). Only the way of calling is different: binary Protocol Buffers over HTTP/2, meant for service-to-service calls.
 
----
+- File: `inventory.proto` (proto3) · server port `50051`
+- Auth: the same JWT in call metadata: `authorization: Bearer <access_token>`
+- Public calls: Signup, Login, GoogleLogin, Health. Everything else needs a token.
+- A server interceptor checks the token and loads the user from the database (role comes from the DB, not the token), like get_current_user in REST.
 
-## 1. Resource Structure
-The API strictly follows RESTful naming conventions. Resources are represented as plural nouns, lowercase, and without verbs. 
+1. How it works (same logic as REST)
+The business rules live once in a service layer. The gRPC servicer only converts the proto message into a service call and converts the error into a gRPC status. So gRPC cannot behave differently from REST.
 
-* **`auth`**: Handles user authentication, registration, and Google OAuth.
-* **`items`**: Represents the inventory products. Each item is linked to the user who created it.
-* **`users`**: Represents system users. Used strictly for administrative management (role assignments).
-* **`health`**: A simple resource to check server status.
+2. inventory.proto
+syntax = "proto3";
+package inventory.v1;
+import "google/protobuf/empty.proto";
 
----
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_ADMIN = 1;
+  ROLE_INVENTORY_MANAGER = 2;
+  ROLE_STAFF = 3;
+}
 
-## 2. API URL Structure & Method
-The action is defined by the HTTP method rather than the URL itself.
+message User {
+  int32 id = 1;
+  string name = 2;
+  string email = 3;
+  optional string phone = 4;
+  Role role = 5;
+}
 
-| Resource | Action | Method | API URL | Access Level |
-| :--- | :--- | :--- | :--- | :--- |
-| **auth** | Sign Up | POST | `/auth/signup` | Public |
-| **auth** | Password Login | POST | `/auth/login` | Public |
-| **auth** | Google Login | POST | `/auth/google` | Public |
-| **items** | List Items | GET | `/items?page=1&limit=10` | Logged In |
-| **items** | Read One Item | GET | `/items/{item_id}` | Logged In |
-| **items** | Create Item | POST | `/items` | Logged In |
-| **items** | Update Item | PUT | `/items/{item_id}` | Logged In |
-| **items** | Delete Item | DELETE | `/items/{item_id}` | `inventory_manager` or `admin` |
-| **users** | List Users | GET | `/users` | `admin` only |
-| **users** | Change Role | PATCH | `/users/{user_id}/role`| `admin` only |
-| **health** | Server Status | GET | `/health` | Public |
+message Item {
+  int32 id = 1;
+  string name = 2;
+  int32 quantity = 3;
+  double price = 4;
+  int32 created_by = 5;
+}
 
----
+message SignupRequest {
+  string name = 1;
+  string email = 2;
+  optional string phone = 3;
+  string password = 4;
+}
 
-## 3. Request / Response Contract
-All data is exchanged in `application/json` format. 
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
 
-### A. Auth Contracts
-* **POST `/auth/signup`**
-  * **Request:** `{ "name": "Rahul", "email": "user@example.com", "phone": "+919876543210", "password": "pass" }`
-  * **Response (201):** `{ "id": 1, "name": "Rahul", "email": "user@example.com", "phone": "+919876543210", "role": "staff" }`
-* **POST `/auth/login`**
-  * **Request:** `{ "email": "user@example.com", "password": "pass" }`
-  * **Response (200):** `{ "access_token": "<jwt>", "token_type": "bearer", "role": "staff" }`
+message GoogleLoginRequest {
+  string id_token = 1;
+}
 
-### B. Items Contracts
-* **POST `/items` & PUT `/items/{item_id}`**
-  * **Request:** `{ "name": "Keyboard", "quantity": 10, "price": 49.99 }`
-  * **Validation:** `name`: 1-100 chars, `quantity`: >= 0, `price`: 0.01 to 99999999.99.
-  * **Response (201/200):** `{ "id": 1, "name": "Keyboard", "quantity": 10, "price": 49.99, "created_by": 1 }`
-* **GET `/items`**
-  * **Response (200):** `{ "page": 1, "limit": 10, "total": 25, "items": [ { ...item_data... } ] }`
-* **DELETE `/items/{item_id}`**
-  * **Response (204):** Empty body.
+message TokenResponse {
+  string access_token = 1;
+  string token_type = 2;
+  Role role = 3;
+}
 
-### C. Users Contract
-* **PATCH `/users/{user_id}/role`**
-  * **Request:** `{ "role": "inventory_manager" }`
-  * **Response (200):** Returns updated user object. (400 Bad Request if trying to change admin's role).
+message CreateItemRequest {
+  string name = 1;
+  int32 quantity = 2;
+  double price = 3;
+}
 
----
+message GetItemRequest {
+  int32 id = 1;
+}
 
-## 4. FastAPI Service
-The backend engine is powered by FastAPI, leveraging its modern asynchronous capabilities.
+message UpdateItemRequest {
+  int32 id = 1;
+  string name = 2;
+  int32 quantity = 3;
+  double price = 4;
+}
 
-* **Modularity:** Routes are divided into `auth.py`, `items.py`, and `users.py` and connected via `app.include_router()`.
-* **Validation:** Pydantic models (Schemas) enforce strict data types and constraints before requests hit the business logic.
-* **Middleware:**
-  * **CORS:** Uses `CORSMiddleware` to allow specific frontend origins safely.
-  * **Performance Tracking:** A custom HTTP middleware calculates process time and appends `X-Process-Time` (in ms) to every response header.
-* **Lifespan Manager:** Ensures the system always has an Admin account by reading `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env` on server startup.
+message DeleteItemRequest {
+  int32 id = 1;
+}
 
----
+message ListItemsRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  optional string search = 3;
+}
 
-## 5. Auth
-Authentication is completely stateless, utilizing JSON Web Tokens (JWT).
+message ListItemsResponse {
+  int32 page = 1;
+  int32 limit = 2;
+  int32 total = 3;
+  repeated Item items = 4;
+}
 
-* **JWT Configuration:** Uses `PyJWT` with `HS256` signature. `SECRET_KEY` is loaded securely from `.env`. Tokens expire in 60 minutes.
-* **Transmission:** Tokens must be sent in the header as `Authorization: Bearer <access_token>`.
-* **Token Claims:** Contains `sub` (User ID), `email`, `role`, `iat`, and `exp`.
-* **Security & Roles Design:** 
-  * Although the token contains the `role` for client convenience, **the server always fetches the role from the database** during requests. This ensures immediate effect if a user is promoted, demoted, or deleted.
-  * **Roles:** 
-    * `staff`: Default for all signups. Read/Write items.
-    * `inventory_manager`: Read/Write/Delete items.
-    * `admin`: Manage users and roles.
-  * Passwords are encrypted with `bcrypt`. Google OAuth bypasses passwords (leaves password_hash NULL).
+enum AssignableRole {
+  ASSIGNABLE_ROLE_UNSPECIFIED = 0;
+  ASSIGNABLE_ROLE_INVENTORY_MANAGER = 1;
+  ASSIGNABLE_ROLE_STAFF = 2;
+}
 
----
+message ListUsersResponse {
+  repeated User users = 1;
+}
 
-## 6. PostgreSQL Integration
-The database layer uses PostgreSQL 15, managed via SQLAlchemy (ORM) and Alembic (Migrations).
+message UpdateUserRoleRequest {
+  int32 id = 1;
+  AssignableRole role = 2;
+}
 
-* **`users` Table:**
-  * `id`: Primary Key
-  * `email`: VARCHAR(255) - Enforced as **UNIQUE** and **Indexed** for high-speed login queries.
-  * `password_hash`: Nullable (to support Google OAuth users).
-* **`items` Table:**
-  * `name`: VARCHAR(100) - **Indexed** to support fast text-based searching without performance bottlenecks.
-  * `price`: `NUMERIC(10,2)` - Used instead of Float to guarantee exact precision and avoid rounding errors for currency.
-* **Relationships:**
-  * **One-to-Many:** One user creates many items (`items.created_by` -> `users.id`).
-  * **Data Integrity:** The foreign key strictly prevents deleting a user if they have created items, avoiding orphaned database records.
+message HealthResponse {
+  string status = 1;
+}
+
+service HealthService {
+  rpc Check (google.protobuf.Empty) returns (HealthResponse);
+}
+
+service AuthService {
+  rpc Signup (SignupRequest) returns (User);
+  rpc Login (LoginRequest) returns (TokenResponse);
+  rpc GoogleLogin (GoogleLoginRequest) returns (TokenResponse);
+}
+
+service InventoryService {
+  rpc CreateItem (CreateItemRequest) returns (Item);
+  rpc GetItem (GetItemRequest) returns (Item);
+  rpc ListItems (ListItemsRequest) returns (ListItemsResponse);
+  rpc UpdateItem (UpdateItemRequest) returns (Item);
+  rpc DeleteItem (DeleteItemRequest) returns (google.protobuf.Empty);
+}
+
+service UserService {
+  rpc ListUsers (google.protobuf.Empty) returns (ListUsersResponse);
+  rpc UpdateUserRole (UpdateUserRoleRequest) returns (User);
+}
+
+3. Rules and error mapping (identical to REST)
+- 400 REST maps to FAILED_PRECONDITION gRPC status (When changing the admin's role)
+- 401 REST maps to UNAUTHENTICATED gRPC status (No token, bad/expired token, user deleted, wrong login, invalid Google token)
+- 403 REST maps to PERMISSION_DENIED gRPC status (Role not allowed like staff deleting, non-admin ListUsers, staff editing another user's item)
+- 404 REST maps to NOT_FOUND gRPC status (Item or user not found)
+- 409 REST maps to ALREADY_EXISTS gRPC status (Email already registered, or Google email has a password account)
+- 422 REST maps to INVALID_ARGUMENT gRPC status (Empty name, quantity < 0, price < 0.01, bad email, short password, limit > 100, role unspecified)
+- 503 REST maps to UNAVAILABLE gRPC status (Google login not configured)
+The status message carries the same text as REST detail (for example "Item not found"). Success: DeleteItem returns Empty (REST 204). Signup also starts the background task send_welcome_message, like REST.
+
+4. REST to gRPC Mapping
+- GET /health -> HealthService.Check
+- POST /auth/signup -> AuthService.Signup
+- POST /auth/login -> AuthService.Login
+- POST /auth/google -> AuthService.GoogleLogin
+- POST /items -> InventoryService.CreateItem
+- GET /items?page&limit&search -> InventoryService.ListItems
+- GET /items/{id} -> InventoryService.GetItem
+- PUT /items/{id} -> InventoryService.UpdateItem
+- DELETE /items/{id} -> InventoryService.DeleteItem
+- GET /users -> UserService.ListUsers
+- PATCH /users/{id}/role -> UserService.UpdateUserRole
+
+5. Example call using grpcurl
+grpcurl -plaintext -d '{"email":"user@example.com","password":"password123"}' localhost:50051 inventory.v1.AuthService/Login
+grpcurl -plaintext -H "authorization: Bearer <token>" -d '{"page":1,"limit":5,"search":"mouse"}' localhost:50051 inventory.v1.InventoryService/ListItems
+
+6. Implementation Notes
+grpcio and grpcio-tools generate the Python stubs from inventory.proto; a grpc.ServerInterceptor reads the authorization metadata and runs the same JWT check as REST; docker-compose.yml would expose port 50051. Not implemented, as the assignment asks for the design only.

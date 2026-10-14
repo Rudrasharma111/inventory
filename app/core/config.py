@@ -3,25 +3,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5435/inventory_db"
-)
-
-EXAMPLE_PREFIX = "change-me"
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5435/inventory_db")
 
 SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY or SECRET_KEY.startswith(EXAMPLE_PREFIX):
-    raise RuntimeError("SECRET_KEY is missing or still the example value. Set a real one in .env.")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY is missing. Set it in .env")
 
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_MINUTES = 60
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
-if ADMIN_PASSWORD and ADMIN_PASSWORD.startswith(EXAMPLE_PREFIX):
-    raise RuntimeError("ADMIN_PASSWORD is still the example value. Set a real one in .env.")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
-# Websites (frontends) that may call this API from a browser (CORS).
-CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")]
+CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")]
