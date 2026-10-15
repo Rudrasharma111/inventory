@@ -1,19 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models import Item, User
-from app.schemas import ItemIn, ItemOut, ItemPage
+from app.database.database import get_db
+from app.models.models import Item, User
+from app.schemas.schemas import ItemIn, ItemOut, ItemPage
 from app.core.security import get_current_user, require_admin_or_manager
 
 router = APIRouter(prefix="/items", tags=["Items"], dependencies=[Depends(get_current_user)])
-
 
 def get_item_or_404(item_id: int, db: Session) -> Item:
     item = db.get(Item, item_id)
     if not item:
         raise HTTPException(404, "Item not found")
     return item
-
 
 @router.post("", response_model=ItemOut, status_code=201)
 def create_item(data: ItemIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -23,18 +21,15 @@ def create_item(data: ItemIn, db: Session = Depends(get_db), user: User = Depend
     db.refresh(item)
     return item
 
-
 @router.get("", response_model=ItemPage)
 def list_items(page: int = Query(1, ge=1), limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
     total = db.query(Item).count()
     items = db.query(Item).order_by(Item.id).offset((page - 1) * limit).limit(limit).all()
     return ItemPage(page=page, limit=limit, total=total, items=items)
 
-
 @router.get("/{item_id}", response_model=ItemOut)
 def get_item(item_id: int, db: Session = Depends(get_db)):
     return get_item_or_404(item_id, db)
-
 
 @router.put("/{item_id}", response_model=ItemOut)
 def update_item(item_id: int, data: ItemIn, db: Session = Depends(get_db)):

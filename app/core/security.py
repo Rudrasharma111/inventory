@@ -7,8 +7,8 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy.orm import Session
 from app.core.config import ACCESS_TOKEN_MINUTES, GOOGLE_CLIENT_ID, JWT_ALGORITHM, SECRET_KEY
-from app.database import get_db
-from app.models import User
+from app.database.database import get_db
+from app.models.models import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 

@@ -3,9 +3,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from app.core.config import ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS, GOOGLE_CLIENT_ID
-from app.database import SessionLocal
+from app.database.database import SessionLocal
 from app.pages.login_page import LOGIN_PAGE
-from app.models import User
+from app.models.models import User
 from app.routers import auth, items, users
 from app.core.security import hash_password
 

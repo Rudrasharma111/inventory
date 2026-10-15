@@ -1,12 +1,13 @@
 import os
-os.environ["SECRET_KEY"] = "test-secret-key"
-os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 import pytest
 from fastapi.testclient import TestClient
 from app.database import Base, SessionLocal, engine
 from app.main import app
 from app.models import User
 from app.core.security import hash_password
+
+os.environ["SECRET_KEY"] = "test-secret-key"
+os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 
 
 def login(client, email, password):

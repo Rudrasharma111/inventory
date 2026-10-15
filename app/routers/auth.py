@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models import User
-from app.schemas import GoogleLoginRequest, LoginRequest, SignupRequest, TokenResponse, UserOut
+from app.database.database import get_db
+from app.models.models import User
+from app.schemas.schemas import GoogleLoginRequest, LoginRequest, SignupRequest, TokenResponse, UserOut
 from app.core.security import create_access_token, hash_password, verify_google_token, verify_password
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
