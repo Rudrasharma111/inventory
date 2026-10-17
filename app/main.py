@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from app.core.config import ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS, GOOGLE_CLIENT_ID
+from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, CORS_ORIGINS, GOOGLE_CLIENT_ID
 from app.database.database import SessionLocal
 from app.pages.login_page import LOGIN_PAGE
 from app.models.models import User
@@ -16,7 +16,7 @@ def create_admin():
         email = ADMIN_EMAIL.lower()
         user = db.query(User).filter(User.email == email).first()
         if not user:
-            user = User(name="Admin", email=email)
+            user = User(name="Rudra", email=email)
             db.add(user)
         user.password_hash = hash_password(ADMIN_PASSWORD)
         user.role = "admin"

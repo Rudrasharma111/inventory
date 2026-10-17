@@ -9,7 +9,6 @@ from app.core.security import hash_password
 os.environ["SECRET_KEY"] = "test-secret-key"
 os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 
-
 def login(client, email, password):
     response = client.post("/auth/login", json={"email": email, "password": password})
     return {"Authorization": f"Bearer {response.json()['access_token']}"}

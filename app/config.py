@@ -1,9 +1,10 @@
 import os
 from dotenv import load_dotenv
-
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5435/inventory_db")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is missing. Set it in .env")
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:

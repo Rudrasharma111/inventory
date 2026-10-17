@@ -18,6 +18,7 @@ def create_user(db: Session, name: str, email: str, password_hash: str | None = 
     db.refresh(user)
     return user
 
+
 @router.post("/signup", response_model=UserOut, status_code=201)
 def signup(data: SignupRequest, db: Session = Depends(get_db)):
     if find_user(db, data.email):

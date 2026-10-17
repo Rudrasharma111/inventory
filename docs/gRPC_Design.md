@@ -1,69 +1,33 @@
 # gRPC Design
 
-Project: **Inventory Service**. This is a **design only** file (the running API is REST). It shows how the same app would look as a gRPC service, with the same rules, the same JWT and the same database.
+Project: **Inventory Service** (FastAPI + PostgreSQL + JWT)
+File: `inventory.proto` (proto3) | Server port: `50051`
+
+This is a **design file**. The running API is REST. gRPC here describes the **same app**: same JWT, same roles, same validation rules, same tables (`users`, `items`).
 
 ---
 
-## 1. What is gRPC? (short)
+## 1. What is gRPC?
 
-gRPC is a way to call a function on another server as if it were local (RPC = Remote Procedure Call).
-
-- Contract is written in a **`.proto` file** (Protocol Buffers).
-- Data is sent in a small **binary** format (not text JSON).
-- It runs on **HTTP/2** (fast, many calls on one connection, streaming).
-- Code for client and server is **generated** from the `.proto` file.
-- Best for **service-to-service** calls inside a backend.
+- Calls a function on another server like a normal function call (RPC = Remote Procedure Call).
+- The calls and data are written once in a **`.proto` file**. Code for Python (or any language) is generated from it.
+- Data is sent as **binary** (Protocol Buffers) over **HTTP/2**. It is smaller and faster than JSON.
+- Best for **service-to-service** calls inside the backend. Browsers cannot call gRPC directly.
 
 ---
 
-## 2. Architecture flow (block diagram)
-
-### 2.1 Big picture
+## 2. How a call flows
 
 ```
- +-------------------+     HTTP/2 + Protobuf (binary)    +---------------------------+
- |  gRPC client      |  rpc InventoryService/CreateItem  |  gRPC server (port 50051) |
- |  (another service |  metadata: authorization: Bearer  |                           |
- |   / grpcurl)      | --------------------------------> |  Python grpcio            |
- |                   | <-------------------------------- |                           |
- +-------------------+     response message + status     +-------------+-------------+
-        ^                                                              |
-        | generated stub (from inventory.proto)                        v
-                                                         +---------------------------+
-                                                         |  PostgreSQL 15            |
-                                                         +---------------------------+
-```
-
-### 2.2 One request inside the code (example: `CreateItem`)
-
-```
- Client (stub)
-   |  stub.CreateItem(CreateItemRequest(name="Keyboard", quantity=10, price=49.99),
-   |                  metadata=[("authorization","Bearer <JWT>")])
+Client / other service
+   |  CreateItem(name, quantity, price)   + metadata: authorization: Bearer <JWT>
    v
-+----------------------------------------------------------------------+
-| 1. Serialize to Protobuf bytes, send over HTTP/2                     |
-+------------------------------+---------------------------------------+
-                               v
-+----------------------------------------------------------------------+
-| 2. Server Interceptor (auth)                                         |
-|    read metadata "authorization", check JWT, load user from DB       |
-|    check role for this method (UNAUTHENTICATED / PERMISSION_DENIED)  |
-+------------------------------+---------------------------------------+
-                               v
-+----------------------------------------------------------------------+
-| 3. Servicer  InventoryService.CreateItem()                           |
-|    validate fields (quantity >= 0 ...) -> INVALID_ARGUMENT           |
-+------------------------------+---------------------------------------+
-                               v
-+----------------------------------------------------------------------+
-| 4. Same service function as REST / GraphQL                           |
-|    SQLAlchemy -> PostgreSQL INSERT                                   |
-+------------------------------+---------------------------------------+
-                               v
-+----------------------------------------------------------------------+
-| 5. Build Item message, send back as Protobuf + status OK             |
-+----------------------------------------------------------------------+
+gRPC server (port 50051)
+   -> interceptor: check token, load user, check role
+   -> servicer method CreateItem()
+   -> SQLAlchemy -> PostgreSQL
+   v
+Response message: Item { id, name, quantity, price, created_by }
 ```
 
 ---
@@ -74,8 +38,6 @@ gRPC is a way to call a function on another server as if it were local (RPC = Re
 syntax = "proto3";
 package inventory.v1;
 
-import "google/protobuf/empty.proto";
-
 enum Role {
   ROLE_UNSPECIFIED = 0;
   ROLE_ADMIN = 1;
@@ -83,186 +45,152 @@ enum Role {
   ROLE_STAFF = 3;
 }
 
+// ---------- Data ----------
 message User {
   int32 id = 1;
   string name = 2;
   string email = 3;
-  optional string phone = 4;
-  Role role = 5;
+  Role role = 4;
 }
 
 message Item {
   int32 id = 1;
   string name = 2;
-  int32 quantity = 3;          // >= 0
-  double price = 4;            // 0.01 .. 99999999.99
-  int32 created_by = 5;        // users.id
+  int32 quantity = 3;
+  double price = 4;
+  int32 created_by = 5;
 }
 
-// ---- Auth ----
-message SignupRequest {
-  string name = 1;
-  string email = 2;
-  optional string phone = 3;
-  string password = 4;
+// ---------- Auth ----------
+message SignupRequest       { string name = 1;  string email = 2;  string password = 3; }
+message LoginRequest        { string email = 1; string password = 2; }
+message GoogleLoginRequest  { string id_token = 1; }
+message TokenResponse       { string access_token = 1; string token_type = 2; Role role = 3; }
+
+// ---------- Items ----------
+message CreateItemRequest   { string name = 1; int32 quantity = 2; double price = 3; }
+message GetItemRequest      { int32 id = 1; }
+message UpdateItemRequest   { int32 id = 1; string name = 2; int32 quantity = 3; double price = 4; }
+message DeleteItemRequest   { int32 id = 1; }
+message DeleteItemResponse  { bool deleted = 1; }
+
+message ListItemsRequest {
+  int32 page = 1;                // 0 = use default (1)
+  int32 limit = 2;               // 0 = use default (10), max 100
+  optional int32 created_by = 3; // only items of this user
 }
-message LoginRequest       { string email = 1; string password = 2; }
-message GoogleLoginRequest { string id_token = 1; }
-message TokenResponse      { string access_token = 1; string token_type = 2; Role role = 3; }
-
-// ---- Items ----
-message CreateItemRequest { string name = 1; int32 quantity = 2; double price = 3; }
-message GetItemRequest    { int32 id = 1; }
-message UpdateItemRequest { int32 id = 1; string name = 2; int32 quantity = 3; double price = 4; }
-message DeleteItemRequest { int32 id = 1; }
-message ListItemsRequest  { int32 page = 1; int32 limit = 2; optional string search = 3; }
-message ListItemsResponse { int32 page = 1; int32 limit = 2; int32 total = 3; repeated Item items = 4; }
-
-// ---- Users (admin only) ----
-enum AssignableRole {
-  ASSIGNABLE_ROLE_UNSPECIFIED = 0;
-  ASSIGNABLE_ROLE_INVENTORY_MANAGER = 1;
-  ASSIGNABLE_ROLE_STAFF = 2;
+message ListItemsResponse {
+  int32 page = 1;
+  int32 limit = 2;
+  int32 total = 3;
+  repeated Item items = 4;
 }
-message ListUsersResponse     { repeated User users = 1; }
-message UpdateUserRoleRequest { int32 id = 1; AssignableRole role = 2; }
 
+// ---------- Users ----------
+message ListUsersRequest {}
+message ListUsersResponse { repeated User users = 1; }
+message ChangeUserRoleRequest { int32 user_id = 1; Role role = 2; }
+
+// ---------- Health ----------
+message HealthRequest {}
 message HealthResponse { string status = 1; }
 
-// ---- Services ----
-service HealthService {
-  rpc Check (google.protobuf.Empty) returns (HealthResponse);
-}
+// ---------- Service ----------
+service InventoryService {
+  rpc Health(HealthRequest) returns (HealthResponse);
 
-service AuthService {                       // all public
-  rpc Signup (SignupRequest) returns (User);
-  rpc Login (LoginRequest) returns (TokenResponse);
-  rpc GoogleLogin (GoogleLoginRequest) returns (TokenResponse);
-}
+  rpc Signup(SignupRequest) returns (User);
+  rpc Login(LoginRequest) returns (TokenResponse);
+  rpc GoogleLogin(GoogleLoginRequest) returns (TokenResponse);
 
-service InventoryService {                  // logged in
-  rpc CreateItem (CreateItemRequest) returns (Item);
-  rpc GetItem (GetItemRequest) returns (Item);
-  rpc ListItems (ListItemsRequest) returns (ListItemsResponse);
-  rpc UpdateItem (UpdateItemRequest) returns (Item);
-  rpc DeleteItem (DeleteItemRequest) returns (google.protobuf.Empty);   // manager / admin
-}
+  rpc CreateItem(CreateItemRequest) returns (Item);
+  rpc GetItem(GetItemRequest) returns (Item);
+  rpc ListItems(ListItemsRequest) returns (ListItemsResponse);
+  rpc UpdateItem(UpdateItemRequest) returns (Item);
+  rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse);
 
-service UserService {                       // admin only
-  rpc ListUsers (google.protobuf.Empty) returns (ListUsersResponse);
-  rpc UpdateUserRole (UpdateUserRoleRequest) returns (User);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc ChangeUserRole(ChangeUserRoleRequest) returns (User);
 }
 ```
 
-Notes: field numbers (`= 1`, `= 2` ...) must never change after release. `page = 0` / `limit = 0` mean "not set" (defaults 1 and 10, max 100).
+Rules (same as REST):
+- `name`: 1-100 characters. `quantity`: 0 or more. `price`: more than 0. `password`: 8-64 characters.
+- `ChangeUserRole` can set only `ROLE_STAFF` or `ROLE_INVENTORY_MANAGER`. The role of an admin cannot be changed.
+- Signup and Google login always create a `ROLE_STAFF` user.
 
 ---
 
-## 4. Auth and roles
+## 4. Methods, access and REST equivalent
 
-- Same JWT as REST, sent in **call metadata**: `authorization: Bearer <access_token>`.
-- Public calls: `Health.Check`, `Auth.Signup`, `Auth.Login`, `Auth.GoogleLogin`.
-- A **server interceptor** checks the token and loads the user from the database (role comes from the DB, not the token).
-
-| Call | staff | inventory_manager | admin |
-| :--- | :-: | :-: | :-: |
-| CreateItem, GetItem, ListItems, UpdateItem | yes | yes | yes |
-| DeleteItem | no | yes | yes |
-| ListUsers, UpdateUserRole | no | no | yes |
+| RPC method | Who can call | REST equivalent |
+| :--- | :--- | :--- |
+| `Health` | public | `GET /health` |
+| `Signup` | public | `POST /auth/signup` |
+| `Login` | public | `POST /auth/login` |
+| `GoogleLogin` | public | `POST /auth/google` |
+| `CreateItem` | any logged-in user | `POST /items` |
+| `ListItems` | any logged-in user | `GET /items?page=&limit=` |
+| `GetItem` | any logged-in user | `GET /items/{id}` |
+| `UpdateItem` | any logged-in user | `PUT /items/{id}` |
+| `DeleteItem` | inventory_manager, admin | `DELETE /items/{id}` |
+| `ListUsers` | admin | `GET /users` |
+| `ChangeUserRole` | admin | `PATCH /users/{id}/role` |
 
 ---
 
-## 5. Error mapping (REST to gRPC)
+## 5. Auth
 
-| REST | gRPC status | When |
+Same JWT as REST (see `JWT_Design.md`). The token goes in the call **metadata** (like an HTTP header):
+
+```
+authorization: Bearer <access_token>
+```
+
+A server **interceptor** runs before every method. It checks the token, loads the user from the database (the role comes from the database) and checks the role for that method.
+
+---
+
+## 6. Errors (REST to gRPC)
+
+| REST | gRPC status | Example |
 | :-: | :--- | :--- |
-| 400 | `FAILED_PRECONDITION` | Changing the admin's role |
-| 401 | `UNAUTHENTICATED` | No / bad / expired token, wrong login |
-| 403 | `PERMISSION_DENIED` | Role not allowed |
-| 404 | `NOT_FOUND` | Item or user not found |
-| 409 | `ALREADY_EXISTS` | Email already registered |
-| 422 | `INVALID_ARGUMENT` | Invalid field values |
-| 503 | `UNAVAILABLE` | Google login not configured |
+| 401 | `UNAUTHENTICATED` | no token, bad token, wrong password |
+| 403 | `PERMISSION_DENIED` | staff user calls `DeleteItem` |
+| 404 | `NOT_FOUND` | item or user does not exist |
+| 409 | `ALREADY_EXISTS` | email already registered |
+| 400 / 422 | `INVALID_ARGUMENT` | `quantity` is negative, `price` is 0 |
+| 503 | `UNAVAILABLE` | Google login is not configured |
+| 500 | `INTERNAL` | unexpected error |
 
 ---
 
-## 6. REST to gRPC map
+## 7. Example call (grpcurl)
 
-| REST | gRPC |
-| :--- | :--- |
-| `GET /health` | `HealthService.Check` |
-| `POST /auth/signup` | `AuthService.Signup` |
-| `POST /auth/login` | `AuthService.Login` |
-| `POST /auth/google` | `AuthService.GoogleLogin` |
-| `POST /items` | `InventoryService.CreateItem` |
-| `GET /items?page&limit&search` | `InventoryService.ListItems` |
-| `GET /items/{id}` | `InventoryService.GetItem` |
-| `PUT /items/{id}` | `InventoryService.UpdateItem` |
-| `DELETE /items/{id}` | `InventoryService.DeleteItem` |
-| `GET /users` | `UserService.ListUsers` |
-| `PATCH /users/{id}/role` | `UserService.UpdateUserRole` |
-
----
-
-## 7. Example: how to build ONE endpoint in gRPC (`CreateItem`)
-
-**Step 1 - Write the contract** (`inventory.proto`): `CreateItemRequest`, `Item`, and `rpc CreateItem` (see section 3).
-
-**Step 2 - Generate code:**
 ```bash
-pip install grpcio grpcio-tools
-python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. inventory.proto
-```
-This creates `inventory_pb2.py` (messages) and `inventory_pb2_grpc.py` (service base classes).
+# login
+grpcurl -plaintext -d '{"email":"user@example.com","password":"password123"}' \
+  localhost:50051 inventory.v1.InventoryService/Login
 
-**Step 3 - Implement the servicer:**
-```python
-class InventoryService(inventory_pb2_grpc.InventoryServiceServicer):
-    def CreateItem(self, request, context):
-        user = context.user                               # set by the auth interceptor
-        if request.quantity < 0 or not (0.01 <= request.price <= 99999999.99):
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Invalid quantity or price")
-        with SessionLocal() as db:
-            item = Item(name=request.name, quantity=request.quantity,
-                        price=request.price, created_by=user.id)
-            db.add(item); db.commit(); db.refresh(item)
-            return inventory_pb2.Item(id=item.id, name=item.name, quantity=item.quantity,
-                                      price=float(item.price), created_by=item.created_by)
-```
-
-**Step 3b - Auth interceptor:**
-```python
-class AuthInterceptor(grpc.ServerInterceptor):
-    def intercept_service(self, continuation, details):
-        meta = dict(details.invocation_metadata)
-        token = meta.get("authorization", "").removeprefix("Bearer ")
-        # check JWT + load user, otherwise abort with UNAUTHENTICATED
-        return continuation(details)
-```
-
-**Step 4 - Start the server:**
-```python
-server = grpc.server(futures.ThreadPoolExecutor(max_workers=10), interceptors=[AuthInterceptor()])
-inventory_pb2_grpc.add_InventoryServiceServicer_to_server(InventoryService(), server)
-server.add_insecure_port("[::]:50051")
-server.start(); server.wait_for_termination()
-```
-
-**Step 5 - Call it** (`grpcurl` or Python client):
-```bash
+# create an item (with token)
 grpcurl -plaintext -H "authorization: Bearer <token>" \
   -d '{"name":"Keyboard","quantity":10,"price":49.99}' \
   localhost:50051 inventory.v1.InventoryService/CreateItem
 ```
+Response:
 ```json
 { "id": 1, "name": "Keyboard", "quantity": 10, "price": 49.99, "createdBy": 2 }
 ```
-(`docker-compose.yml` would also expose port `50051`.)
 
 ---
 
-## 8. Why gRPC (and when)
-- Very fast and small messages (binary).
-- Strong contract and generated clients in many languages.
-- Streaming is built in.
-- Cost: browsers cannot call it directly (needs gRPC-Web), and binary data is hard to read by eye.
+## 8. REST vs gRPC
+
+| | REST (built) | gRPC (this design) |
+| :--- | :--- | :--- |
+| Data format | JSON (text) | Protobuf (binary) |
+| Transport | HTTP/1.1 | HTTP/2 |
+| Contract | OpenAPI / Swagger | `.proto` file |
+| Used by | browsers, apps | other backend services |
+| Errors | HTTP status | gRPC status codes |
+| Auth, roles, database | JWT, 3 roles, PostgreSQL | **same** |

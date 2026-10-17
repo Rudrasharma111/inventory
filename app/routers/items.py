@@ -41,7 +41,6 @@ def update_item(item_id: int, data: ItemIn, db: Session = Depends(get_db)):
     db.refresh(item)
     return item
 
-
 @router.delete("/{item_id}", status_code=204, dependencies=[Depends(require_admin_or_manager)])
 def delete_item(item_id: int, db: Session = Depends(get_db)):
     db.delete(get_item_or_404(item_id, db))

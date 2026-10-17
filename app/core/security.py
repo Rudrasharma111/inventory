@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy.orm import Session
-from app.core.config import ACCESS_TOKEN_MINUTES, GOOGLE_CLIENT_ID, JWT_ALGORITHM, SECRET_KEY
+from app.config import ACCESS_TOKEN_MINUTES, GOOGLE_CLIENT_ID, JWT_ALGORITHM, SECRET_KEY
 from app.database.database import get_db
 from app.models.models import User
 
@@ -15,18 +15,23 @@ bearer_scheme = HTTPBearer(auto_error=False)
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
+
+
 def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode(), password_hash.encode())
+
+
 
 def create_access_token(user: User) -> str:
     expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_MINUTES)
     payload = {"sub": str(user.id), "role": user.role, "exp": expires}
     return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
 
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-) -> User:
+    db: Session = Depends(get_db),) -> User:
     if credentials is None:
         raise HTTPException(401, "Not authenticated")
     try:
@@ -38,15 +43,21 @@ def get_current_user(
         raise HTTPException(401, "User no longer exists")
     return user
 
+
+
 def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(403, "Your role is not allowed to do this")
     return user
 
+
+
 def require_admin_or_manager(user: User = Depends(get_current_user)) -> User:
     if user.role not in ("admin", "inventory_manager"):
         raise HTTPException(403, "Your role is not allowed to do this")
     return user
+
+
 
 def verify_google_token(token: str) -> dict:
     if not GOOGLE_CLIENT_ID:

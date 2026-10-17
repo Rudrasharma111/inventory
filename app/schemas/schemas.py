@@ -6,6 +6,7 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=64)
 
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -30,7 +31,7 @@ class RoleUpdate(BaseModel):
 
 class ItemIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    quantity: int = Field(ge=0)
+    quantity: int = Field(ge=0,serialization_alias="Total_quantity")
     price: float = Field(ge=0.01, le=99999999.99)
 
 class ItemOut(ItemIn):
