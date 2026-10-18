@@ -35,9 +35,9 @@ A backend service to manage inventory items. Users sign up or log in (email + pa
 | Auth | JWT (HS256, 60 minutes) + Google Sign-In |
 | Roles | 3: `staff`, `inventory_manager`, `admin` |
 | REST endpoints | 11 (including `POST /auth/google`), plus the `/login` page for Google |
-| Docker services | 3: `db` (PostgreSQL), `pgadmin`, `web` (the API) |
+| Docker services | 2: `db` (PostgreSQL), `web` (the API) |
 | Automated tests | 3 tests (pytest) |
-| Application code | about 430 lines in 11 small files |
+| Application code | about 375 lines in 17 small files (inside `app/`) |
 | Design docs | REST, GraphQL, gRPC, Database, JWT (in `docs/`) |
 
 | URL | What you get |
@@ -46,25 +46,22 @@ A backend service to manage inventory items. Users sign up or log in (email + pa
 | http://localhost:8000/redoc | ReDoc documentation |
 | http://localhost:8000/health | Health check |
 | http://localhost:8000/login | "Sign in with Google" page |
-| http://localhost:5050 | pgAdmin: look at the database tables |
 
 ---
 
-
+## 2. M4 requirement checklist
 
 | Topic from the course | Where it is used |
 | :--- | :--- |
 | REST methods, status codes, idempotency | [Section 6](#6-api-documentation) |
-| Pydantic models and validators | `app/schemas.py` |
-| SQLAlchemy ORM, queries, connection pooling | `app/models.py`, `app/database.py`, `app/routers/` |
+| Pydantic models and validators | `app/schemas/schemas.py` |
+| SQLAlchemy ORM, queries, connection pooling | `app/models/models.py`, `app/database/database.py`, `app/routers/` |
 | Database migrations | `alembic/` ([Section 10](#10-database-migrations-alembic)) |
-| JWT and OAuth login | `app/auth.py` |
-| Middleware | `add_process_time_header` in `app/main.py` |
-| Background task | `send_welcome_message` in `app/routers/auth.py` |
+| JWT and OAuth login | `app/core/security.py` |
 | CORS | `CORSMiddleware` in `app/main.py` |
 | dotenv | `app/config.py` |
-| pytest fixtures | `tests/` |
-| Docker + Docker Compose (PostgreSQL + pgAdmin) | `Dockerfile`, `docker-compose.yml` |
+| pytest fixtures | `tests/test_api.py` |
+| Docker + Docker Compose (PostgreSQL + the API) | `Dockerfile`, `docker-compose.yml` |
 
 ---
 
@@ -73,35 +70,40 @@ A backend service to manage inventory items. Users sign up or log in (email + pa
 ```
 inventory-service/
 ├── app/
-│   ├── main.py             # creates the app, CORS, middleware, creates the admin on startup
+│   ├── main.py             # creates the app, CORS, creates the admin on startup
 │   ├── config.py           # reads settings from .env
-│   ├── database.py         # database engine and session (one session per request)
-│   ├── models.py           # the 2 tables: User, Item
-│   ├── schemas.py          # Pydantic models: validate requests, shape responses
-│   ├── auth.py             # password hashing, JWT, "who is logged in", role checks, Google check
-│   ├── login_page.py       # small HTML page with the "Sign in with Google" button
+│   ├── core/
+│   │   └── security.py     # password hashing, JWT, "who is logged in", role checks, Google check
+│   ├── database/
+│   │   └── database.py     # database engine and session (one session per request)
+│   ├── models/
+│   │   └── models.py       # the 2 tables: User, Item
+│   ├── schemas/
+│   │   └── schemas.py      # Pydantic models: validate requests, shape responses
+│   ├── pages/
+│   │   └── login_page.py   # small HTML page with the "Sign in with Google" button
 │   └── routers/
 │       ├── auth.py         # /auth/signup, /auth/login, /auth/google
-│       ├── items.py        # /items (CRUD, pagination, search)
+│       ├── items.py        # /items (CRUD, pagination)
 │       └── users.py        # /users (admin only)
 ├── alembic/                # database migrations
 │   └── versions/0001_create_users_and_items.py
 ├── tests/
-│   ├── conftest.py         # fixtures: test client, staff login, admin login
-│   └── test_api.py         # the 3 tests
+│   └── test_api.py         # the 3 tests and their fixtures
 ├── docs/
 │   ├── REST_API_Design.md
 │   ├── GraphQL_Design.md
 │   ├── gRPC_Design.md
-│   ├── Database_Design.md  # and erd.svg
+│   ├── Database_Design.md
 │   ├── JWT_Design.md
 │   └── postman_collection.json
 ├── Dockerfile
-├── docker-compose.yml      # db + pgadmin + web
+├── docker-compose.yml      # db + web
 ├── alembic.ini
 ├── pytest.ini
 ├── requirements.txt        # all packages (app + pytest and httpx for tests)
 ├── .env.example            # template for your .env
+├── M4ppt.pptx              # the presentation
 └── README.md
 ```
 
@@ -114,23 +116,24 @@ inventory-service/
 | Layer | File | Job |
 | :--- | :--- | :--- |
 | Routers | `app/routers/*.py` | Receive the request, call the logic, return the response |
-| Schemas | `app/schemas.py` | Pydantic checks the incoming data and shapes the outgoing data |
-| Auth | `app/auth.py` | Hash passwords, create and check JWTs, check roles |
-| Models | `app/models.py` | Python classes that map to the tables |
-| Database | `app/database.py` | Connection pool and one session per request |
+| Schemas | `app/schemas/schemas.py` | Pydantic checks the incoming data and shapes the outgoing data |
+| Auth | `app/core/security.py` | Hash passwords, create and check JWTs, check roles |
+| Models | `app/models/models.py` | Python classes that map to the tables |
+| Database | `app/database/database.py` | Connection pool and one session per request |
 
 ### 4.2 Life of a protected request
 
 Example: `DELETE /items/5` with a token.
 
+1. The request arrives with the header `Authorization: Bearer <token>`.
 2. `get_current_user` checks the token signature and expiry, then loads the user from the database (so the role is the **current** one).
-3. `require_roles` checks that the role is `admin` or `inventory_manager`.
+3. `require_admin_or_manager` checks that the role is `admin` or `inventory_manager`.
 
 Status codes along this path: no or bad token → **401**, role not allowed → **403**, invalid body or query → **422**, missing item → **404**.
 
 ### 4.3 Email + password login
 
-1. `POST /auth/signup` → the password is hashed with bcrypt and saved. The new user gets the role `staff`. A background task writes a "welcome message" to the log after the response is sent.
+1. `POST /auth/signup` → the password is hashed with bcrypt and saved. The new user gets the role `staff`.
 2. `POST /auth/login` → the server finds the user by email and checks the password hash. If both are correct, it returns a JWT.
 3. The client sends that JWT in the `Authorization: Bearer <token>` header with every request.
 
@@ -150,8 +153,6 @@ Rule: if the email already has a **password account**, Google login is rejected 
 
 PostgreSQL 15 with two tables. Tables are created by Alembic migrations (see [Section 10](#10-database-migrations-alembic)).
 
-The ERD diagram is in [docs/erd.svg](docs/erd.svg) and in the presentation.
-
 ### `users`
 
 | Column | Type | Constraints |
@@ -159,7 +160,6 @@ The ERD diagram is in [docs/erd.svg](docs/erd.svg) and in the presentation.
 | id | INTEGER | PRIMARY KEY (auto number) |
 | name | VARCHAR(100) | NOT NULL |
 | email | VARCHAR(255) | NOT NULL, UNIQUE, indexed |
-| phone | VARCHAR(20) | NULL allowed |
 | password_hash | VARCHAR(255) | NULL allowed (Google users have no password) |
 | role | VARCHAR(20) | NOT NULL (`admin`, `inventory_manager`, `staff`) |
 
@@ -168,7 +168,7 @@ The ERD diagram is in [docs/erd.svg](docs/erd.svg) and in the presentation.
 | Column | Type | Constraints |
 | :--- | :--- | :--- |
 | id | INTEGER | PRIMARY KEY (auto number) |
-| name | VARCHAR(100) | NOT NULL, indexed (used by search) |
+| name | VARCHAR(100) | NOT NULL |
 | quantity | INTEGER | NOT NULL (the API requires >= 0; 0 = out of stock) |
 | price | NUMERIC(10,2) | NOT NULL (exact decimal, so money has no rounding errors) |
 | created_by | INTEGER | NOT NULL, FOREIGN KEY → `users.id` |
@@ -195,7 +195,7 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 | 3 | POST | `/auth/login` | public | 200 | 401, 422 |
 | 4 | POST | `/auth/google` | public (used by the `/login` page) | 200 | 401, 409, 503 |
 | 5 | POST | `/items` | any logged-in user | 201 | 401, 422 |
-| 6 | GET | `/items?page=&limit=&search=` | any logged-in user | 200 | 401, 422 |
+| 6 | GET | `/items?page=&limit=` | any logged-in user | 200 | 401, 422 |
 | 7 | GET | `/items/{item_id}` | any logged-in user | 200 | 401, 404 |
 | 8 | PUT | `/items/{item_id}` | any logged-in user (staff, manager, admin) | 200 | 401, 404, 422 |
 | 9 | DELETE | `/items/{item_id}` | manager, admin | 204 | 401, 403, 404 |
@@ -206,11 +206,11 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 
 **POST `/auth/signup`**
 ```json
-{ "name": "Rahul Sharma", "email": "rahul@example.com", "phone": "+919876543210", "password": "password123" }
+{ "name": "Rahul Sharma", "email": "rahul@example.com", "password": "password123" }
 ```
 `201`:
 ```json
-{ "id": 2, "name": "Rahul Sharma", "email": "rahul@example.com", "phone": "+919876543210", "role": "staff" }
+{ "id": 2, "name": "Rahul Sharma", "email": "rahul@example.com", "role": "staff" }
 ```
 
 **POST `/auth/login`**
@@ -231,13 +231,12 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 { "id": 1, "name": "Keyboard", "quantity": 10, "price": 49.99, "created_by": 2 }
 ```
 
-**GET `/items?page=1&limit=5&search=key`**
+**GET `/items?page=1&limit=5`**
 
 | Query | Default | Rule |
 | :--- | :--- | :--- |
 | `page` | 1 | integer >= 1 |
 | `limit` | 10 | integer from 1 to 100 |
-| `search` | none | part of the item name, not case sensitive |
 
 `200`:
 ```json
@@ -271,7 +270,6 @@ Send the token as `Authorization: Bearer <access_token>`. In Swagger click **Aut
 | 503 | Google login is not configured |
 
 Errors look like `{ "detail": "Item not found" }`. For `422`, `detail` lists the invalid fields.
-Every response has an `X-Process-Time` header (added by the middleware).
 
 ### 6.4 Idempotency
 
@@ -290,7 +288,7 @@ Every response has an `X-Process-Time` header (added by the middleware).
 ### 7.1 JWT
 
 - Library: PyJWT · Algorithm: **HS256** · Secret: `SECRET_KEY` · Lifetime: **60 minutes**.
-- Claims: `sub` (user id), `email`, `role`, `iat`, `exp`. Full details: [docs/JWT_Design.md](docs/JWT_Design.md).
+- Claims: `sub` (user id), `role`, `exp`. Full details: [docs/JWT_Design.md](docs/JWT_Design.md).
 - The **role is read from the database on every request, not from the token**. So a role change (or a deleted user) works immediately and the user does not need to log in again.
 
 ### 7.2 Roles and permissions
@@ -314,17 +312,13 @@ Every response has an `X-Process-Time` header (added by the middleware).
 
 | Measure | Where |
 | :--- | :--- |
-| Passwords stored as **bcrypt** hashes, never as plain text | `app/auth.py` |
-| Password limited to 72 bytes (bcrypt reads only 72) | `app/schemas.py` |
+| Passwords stored as **bcrypt** hashes, never as plain text | `app/core/security.py` |
 | Same error for wrong email and wrong password (`401`) | `app/routers/auth.py` |
-| App refuses to start without `SECRET_KEY`, or with the example value | `app/config.py` |
-| Admin password must also be changed from the example value | `app/config.py` |
+| App refuses to start without `SECRET_KEY` or `DATABASE_URL` | `app/config.py` |
 | Google login never merges into a password account (`409`) | `app/routers/auth.py` |
-| Google token must have a verified email | `app/auth.py` |
-| Duplicate signup at the same moment returns `409` (not `500`) | `app/routers/auth.py` |
-| SQL injection: the ORM is used (no raw SQL); search characters are escaped | `app/routers/items.py` |
+| Google token must have a verified email | `app/core/security.py` |
+| SQL injection: the ORM is used (no raw SQL) | `app/routers/` |
 | Secrets live in `.env`, which is git-ignored and docker-ignored | `.gitignore`, `.dockerignore` |
-| The container runs as a normal user, not root | `Dockerfile` |
 
 ---
 
@@ -334,10 +328,9 @@ Checked by Pydantic. Bad input returns `422` with the list of problems.
 
 | Field | Rule |
 | :--- | :--- |
-| `name` (user, item) | 1–100 characters, spaces at the ends are removed |
+| `name` (user, item) | 1–100 characters |
 | `email` | valid email format |
-| `phone` | optional, 7–15 digits, optional `+` at the start |
-| `password` | 8–64 characters, at most 72 bytes |
+| `password` | 8–64 characters |
 | `quantity` | integer **>= 0** (0 means out of stock) |
 | `price` | number from 0.01 to 99999999.99 (stored with 2 decimals) |
 | `page` / `limit` | `page` >= 1, `limit` from 1 to 100 |
@@ -360,9 +353,11 @@ cp .env.example .env            # Windows: copy .env.example .env
 #    SECRET_KEY      -> a long random string
 #    ADMIN_EMAIL     -> your admin login email
 #    ADMIN_PASSWORD  -> your admin password
-#    (the app refuses to start if SECRET_KEY or ADMIN_PASSWORD still start with "change-me")
+#    POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB -> add these 3 lines yourself, e.g.
+#      POSTGRES_USER=postgres  POSTGRES_PASSWORD=postgres  POSTGRES_DB=inventory_db
+#      (they must match DATABASE_URL; the db container does not start without them)
 
-# 3. Build and start db + pgadmin + api
+# 3. Build and start db + api
 docker compose up --build
 ```
 
@@ -370,14 +365,11 @@ Then open **http://localhost:8000/docs**. The tables are created automatically (
 
 After you change code, `.env`, `requirements.txt` or the `Dockerfile`, run `docker compose up --build` again. To start with a fresh database: `docker compose down -v`. Stop with `Ctrl + C` or `docker compose down`.
 
-### 9.3 Look at the data in pgAdmin
+### 9.3 Look at the data
 
-1. Open **http://localhost:5050** and log in with `admin@example.com` / `admin`.
-2. *Add New Server* → **Connection** tab: host `db`, port `5432`, user `postgres`, password `postgres`, database `inventory_db`.
-3. Open *Databases → inventory_db → Schemas → public → Tables* and view `users` and `items`.
-
-Or use the terminal:
+Use the terminal (user and database name are the `POSTGRES_USER` and `POSTGRES_DB` from your `.env`):
 ```bash
+docker compose exec db psql -U postgres -d inventory_db -c "\dt"
 docker compose exec db psql -U postgres -d inventory_db -c "SELECT id, name, email, role FROM users;"
 ```
 
@@ -398,10 +390,11 @@ If PowerShell says "scripts are disabled", run once: `Set-ExecutionPolicy -Scope
 
 | Variable | Required | Purpose |
 | :--- | :---: | :--- |
-| `SECRET_KEY` | yes | Signs the JWTs. App refuses to start if missing or still the example value |
+| `SECRET_KEY` | yes | Signs the JWTs. App refuses to start if it is missing |
 | `ADMIN_EMAIL` | yes (for the admin) | Email of the one admin account |
-| `ADMIN_PASSWORD` | yes (for the admin) | Password of the admin. Must not be the example value |
-| `DATABASE_URL` | no | Defaults to `postgresql://postgres:postgres@localhost:5435/inventory_db`. Inside Docker, Compose sets it to the `db` service |
+| `ADMIN_PASSWORD` | yes (for the admin) | Password of the admin |
+| `DATABASE_URL` | yes | Database address, e.g. `postgresql://postgres:postgres@localhost:5435/inventory_db`. App refuses to start if it is missing. Inside Docker, Compose replaces it with the `db` service address |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | yes (Docker) | Create the database user and database in the `db` container. Must match `DATABASE_URL` |
 | `CORS_ORIGINS` | no | Websites allowed to call the API from a browser, comma separated. Default `http://localhost:3000` |
 | `GOOGLE_CLIENT_ID` | no | Only needed for Sign in with Google |
 
@@ -421,11 +414,11 @@ If the consent screen is in "Testing" mode, add your Google account under *Test 
 
 1. `docker compose up --build` → open `/docs`.
 2. `POST /auth/signup`, then `POST /auth/login` → copy the token → **Authorize**.
-3. `POST /items` a few times, then `GET /items?page=1&limit=2` (pagination) and `?search=key` (search).
+3. `POST /items` a few times, then `GET /items?page=1&limit=2` (pagination).
 4. `DELETE /items/{id}` as staff → **403**.
 5. Log in as the admin → `GET /users` → `PATCH /users/{id}/role` to `inventory_manager`.
 6. `DELETE /items/{id}` with the **same staff token** → **204** (the role comes from the database).
-7. Look at the tables in pgAdmin, then run `pytest`.
+7. Look at the tables with `psql` (Section 9.3), then run `pytest`.
 
 ---
 
@@ -436,7 +429,7 @@ The database structure is versioned with **Alembic**. The first migration (`alem
 | What you want | Command |
 | :--- | :--- |
 | Create / update the tables | `alembic upgrade head` |
-| Create a migration after changing `app/models.py` | `alembic revision --autogenerate -m "message"` |
+| Create a migration after changing `app/models/models.py` | `alembic revision --autogenerate -m "message"` |
 | Go back one version | `alembic downgrade -1` |
 | See the current version | `alembic current` |
 
@@ -454,7 +447,7 @@ pytest
 Expected result: **`3 passed`**.
 
 - The tests run **without Docker** on a temporary SQLite file `test.db`, so they never touch your PostgreSQL data.
-- No `.env` is needed: `tests/conftest.py` sets its own `SECRET_KEY`.
+- No `.env` is needed: the top of `tests/test_api.py` sets its own `SECRET_KEY` and `DATABASE_URL` before the app is imported.
 - `test.db` stays after the run. It is git-ignored; just ignore it.
 
 | # | Test | What it proves |
@@ -469,12 +462,12 @@ Concepts used: pytest fixtures (`client`, `staff_headers`, `admin_headers`).
 
 ## 12. Postman collection
 
-Import [docs/postman_collection.json](docs/postman_collection.json) (*Import* → choose the file). Every request has test scripts (status codes and headers). Tokens and ids are saved automatically in **collection variables**.
+Import [docs/postman_collection.json](docs/postman_collection.json) (*Import* → choose the file). Every request has test scripts (status codes and response fields). Tokens and ids are saved automatically in **collection variables**.
 
 | Folder | Requests |
 | :--- | :--- |
 | Auth | Signup · Login (staff + admin) · Google Login |
-| Items | Create · List (pagination + search) · Get · Update · Delete (admin 204, staff 403, then 404) |
+| Items | Create · List (pagination) · Get · Update · Delete (admin 204, staff 403, then 404) |
 | Users (admin) | List users (admin 200, staff 403) · Change role (manager, then admin 422, then staff) |
 
 How to run:

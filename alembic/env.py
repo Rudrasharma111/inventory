@@ -1,7 +1,7 @@
 from alembic import context
 from sqlalchemy import create_engine
 from app import models
-from app.core.config import DATABASE_URL
+from app.config import DATABASE_URL
 from app.database import Base
 
 engine = create_engine(DATABASE_URL)

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.database.database import get_db
 from app.models.models import User
 from app.schemas.schemas import GoogleLoginRequest, LoginRequest, SignupRequest, TokenResponse, UserOut
@@ -14,7 +15,11 @@ def find_user(db: Session, email: str) -> User | None:
 def create_user(db: Session, name: str, email: str, password_hash: str | None = None) -> User:
     user = User(name=name, email=email.lower(), password_hash=password_hash, role="staff")
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Email already registered")
     db.refresh(user)
     return user
 

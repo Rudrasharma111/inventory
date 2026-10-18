@@ -104,7 +104,7 @@ Relationship: one **user** creates many **items** (`items.created_by -> users.id
 | 3 | POST | `/auth/login` | public | 200 | 401, 422 |
 | 4 | POST | `/auth/google` | public | 200 | 401, 409, 503 |
 | 5 | POST | `/items` | any logged-in user | 201 | 401, 422 |
-| 6 | GET | `/items?page=&limit=&search=` | any logged-in user | 200 | 401, 422 |
+| 6 | GET | `/items?page=&limit=` | any logged-in user | 200 | 401, 422 |
 | 7 | GET | `/items/{item_id}` | any logged-in user | 200 | 401, 404 |
 | 8 | PUT | `/items/{item_id}` | any logged-in user | 200 | 401, 404, 422 |
 | 9 | DELETE | `/items/{item_id}` | inventory_manager, admin | 204 | 401, 403, 404 |
@@ -121,19 +121,18 @@ Token header: `Authorization: Bearer <access_token>`
 
 Request:
 ```json
-{ "name": "Rahul Sharma", "email": "rahul@example.com", "phone": "+919876543210", "password": "password123" }
+{ "name": "Rahul Sharma", "email": "rahul@example.com",  "password": "password123" }
 ```
 
 | Field | Rule |
 | :--- | :--- |
 | name | required, 1-100 chars, spaces at both ends removed |
 | email | required, valid email |
-| phone | optional, 7-15 digits, optional `+` |
 | password | required, 8-64 chars (max 72 bytes) |
 
 Response `201`:
 ```json
-{ "id": 2, "name": "Rahul Sharma", "email": "rahul@example.com", "phone": "+919876543210", "role": "staff" }
+{ "id": 2, "name": "Rahul Sharma", "email": "rahul@example.com", "role": "staff" }
 ```
 Everybody starts as `staff`. A background task writes a "welcome message" to the log.
 
@@ -171,9 +170,8 @@ Response `201`:
 | :--- | :--- | :--- |
 | `page` | 1 | integer >= 1 |
 | `limit` | 10 | integer 1-100 |
-| `search` | none | part of the name, not case sensitive |
 
-Example: `GET /items?page=2&limit=5&search=key`
+Example: `GET /items?page=2&limit=5`
 
 Response `200`:
 ```json
